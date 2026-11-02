@@ -21,14 +21,14 @@ const vertex = /* glsl */ `
   varying float vAlpha;
 
   void main() {
-    float t = uTime * (0.06 + aSeed * 0.05);
+    float t = uTime * (0.012 + aSeed * 0.010);
 
     // Rotate each point about Y at its own rate — cheap parallax.
     float c = cos(t), s = sin(t);
     vec3 p = vec3(position.x * c - position.z * s, position.y, position.x * s + position.z * c);
 
     // Loudness pushes the shell out and adds a little jitter.
-    float push = 1.0 + uLevel * 0.35 + sin(uTime * 2.0 + aSeed * 12.0) * 0.02;
+    float push = 1.0 + uLevel * 0.10 + sin(uTime * 0.4 + aSeed * 12.0) * 0.004;
     p *= push;
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -43,12 +43,12 @@ const vertex = /* glsl */ `
     // of the cloud at alpha zero while still shading and rasterising every one
     // of those points.
     vAlpha = smoothstep(-11.5, -2.5, mv.z)
-           * (0.30 + uLevel * 0.35)
+           * (0.22 + uLevel * 0.10)
            * (1.0 - aRadius * 0.55);
 
     // Perspective-correct sizing. The constant is tuned for the default 6-unit
     // camera distance — bigger values make the cloud read as fog, not points.
-    gl_PointSize = uSize * (1.0 + uLevel * 0.7) * (13.0 / -mv.z);
+    gl_PointSize = uSize * (1.0 + uLevel * 0.15) * (13.0 / -mv.z);
   }
 `
 
@@ -97,7 +97,7 @@ export function Particles({ drive }: { drive: Drive }) {
       uTime: { value: 0 },
       uLevel: { value: 0 },
       uSize: { value: 3.4 },
-      uColor: { value: new THREE.Color('#00e5ff') },
+      uColor: { value: new THREE.Color('#ff2d4a') },
       uIntensity: { value: 1 },
     }),
     [],

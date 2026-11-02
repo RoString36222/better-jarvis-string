@@ -171,8 +171,8 @@ function Rig() {
 
     // Slow drift on the camera keeps handheld-ish life in the shot.
     const t = state.clock.elapsedTime
-    state.camera.position.x = Math.sin(t * 0.13) * 0.35
-    state.camera.position.y = Math.cos(t * 0.17) * 0.22
+    state.camera.position.x = Math.sin(t * 0.05) * 0.05
+    state.camera.position.y = Math.cos(t * 0.07) * 0.03
     state.camera.lookAt(0, 0, 0)
   })
 
@@ -219,20 +219,20 @@ export function Scene() {
       <EffectComposer multisampling={0}>
         {/* Bloom is what turns additive lines into "hologram". */}
         <Bloom
-          intensity={1.15}
+          intensity={0.8}
           // A higher threshold keeps the mid-tones intact so the orb doesn't
           // flatten into a solid white disc.
-          luminanceThreshold={0.22}
+          luminanceThreshold={0.3}
           luminanceSmoothing={0.85}
           mipmapBlur
-          radius={0.72}
+          radius={0.45}
         />
         <ChromaticAberration
-          offset={new THREE.Vector2(0.0009, 0.0012)}
+          offset={new THREE.Vector2(0.00015, 0.0002)}
           radialModulation={false}
           modulationOffset={0}
         />
-        <Noise opacity={0.035} blendFunction={BlendFunction.OVERLAY} />
+        <Noise opacity={0.012} blendFunction={BlendFunction.OVERLAY} />
         <Vignette eskil={false} offset={0.22} darkness={0.95} />
       </EffectComposer>
     </Canvas>

@@ -93,9 +93,9 @@ const fragment = /* glsl */ `
     // Its radius wanders on two scales, so the outline is never a clean
     // geometric circle — this dusty, breathing edge is the whole character of
     // the thing. The slow term drifts; the fine term shivers.
-    float wob   = fbm(ring * 2.6 + vec2(uPhase * 0.22, 0.0)) * 0.055;
-    float grain = fbm(ring * 9.0 - vec2(uPhase * 0.4, 0.0)) * 0.020;
-    float R = 0.74 + wob + grain + uLevel * 0.03;
+    float wob   = fbm(ring * 2.6 + vec2(uPhase * 0.12, 0.0)) * 0.008;
+    float grain = 0.0;
+    float R = 0.74 + wob + grain + uLevel * 0.015;
 
     // Erosion: the outer boundary is eaten away in patches, so the ring reads
     // as something luminous and unstable rather than as a drawn stroke.
@@ -121,19 +121,19 @@ const fragment = /* glsl */ `
     float kWash    = mix(1.0, 1.60, wSphere) * mix(1.0, 0.00, wWire);
     float kGlow    = mix(1.0, 2.20, wSphere) * mix(1.0, 0.30, wWire);
 
-    float outer = band(r, R, 0.030) * (0.45 + erode * 0.6);
+    float outer = band(r, R, 0.011) * (0.85 + erode * 0.15);
     // A second, tighter pass just inside gives the ring an inner wall, which is
     // what makes it read as a tube seen slightly from the front.
-    float wall  = band(r, R - 0.055, 0.020) * 0.5;
+    float wall  = band(r, R - 0.055, 0.008) * 0.45;
     // A fine bright filament riding the outer edge.
-    float edge  = band(r, R + 0.004, 0.007) * (0.5 + uLevel * 0.45);
+    float edge  = band(r, R + 0.002, 0.0026) * (0.95 + uLevel * 0.45);
 
     // Dust: a scatter of bright motes clinging to the outer edge, densest right
     // at the rim and thinning outward, so the ring dissolves into grains rather
     // than ending at a line. This is the single most reference-accurate detail.
     float speck = fbm(ring * 46.0 + vec2(uPhase * 0.15, 11.0));
     speck = pow(max(speck, 0.0), 3.0);
-    float dust = speck * band(r, R + 0.028, 0.055) * (1.4 + uLevel);
+    float dust = speck * band(r, R + 0.018, 0.028) * (0.35 + uLevel * 0.4);
 
     // -- radar sweep --------------------------------------------------------
     // A soft luminous wedge travelling around the ring, leaving a fading wake
@@ -223,10 +223,10 @@ export function Core({ drive }: { drive: Drive }) {
 
   const uniforms = useMemo(
     () => ({
-      uColor: { value: new THREE.Color('#19c4c4') },
+      uColor: { value: new THREE.Color('#e0203c') },
       // Not white — a tinted highlight keeps the hue readable once bloom
       // stacks on top, instead of washing the ring out to a grey band.
-      uHot: { value: new THREE.Color('#c9fdff') },
+      uHot: { value: new THREE.Color('#ffe0e6') },
       uLevel: { value: 0 },
       uPhase: { value: 0 },
       uOpen: { value: 0 },
@@ -259,7 +259,7 @@ export function Core({ drive }: { drive: Drive }) {
     // clock would rewrite all the turbulence that has already happened, and the
     // edge would boil harder the longer the tab had been open. The spin
     // multiplier rides on the same accumulator for the same reason.
-    u.uPhase.value += dt * (0.5 + u.uLevel.value * 0.7) * r.spin
+    u.uPhase.value += dt * (0.3 + u.uLevel.value * 0.5) * r.spin
     u.uOpen.value += (drive.open - u.uOpen.value) * Math.min(1, dt * 1.6)
     u.uIntensity.value = r.intensity
     u.uStyle.value = r.style

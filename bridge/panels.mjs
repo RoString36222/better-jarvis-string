@@ -238,6 +238,12 @@ Choosing what to open:
   embed   — a YouTube or Vimeo watch URL. It is turned into a player.
   markup  — your own composed HTML, in the same .hud-* system the display tool
             uses, when none of the above is the shape of the answer.
+  chart   — a bar or line chart drawn natively. Send numbers, not markup:
+            \`chart: { type: "bar" | "line", labels: [...], values: [...],
+            unit?: "%", caption?: "one line saying what it shows and where it is from" }\`.
+            Use real figures you found, never invented ones.
+  stat    — one big figure on its own card, e.g. "≈20m". Send
+            \`stat: { value: "≈20m", label: "QUEST HEADSETS SOLD", note?: "source, date" }\`.
   camera  — the live view from the user's camera, on screen. Open it when they
             ask to see the camera, or when they want you to watch them do
             something: while it is open you can also review the seconds that
@@ -253,14 +259,19 @@ from the file extension — image CDNs routinely serve pictures from URLs with n
 extension, and a link that looks like a video is usually a page about one.
 
 Never open a blade the user did not ask for and does not need. One blade that
-answers the question beats three that surround it.`
+answers the question beats three that surround it.
+
+THE RESEARCH WALL. When the user asks you to research, investigate, compare or
+brief them on something, do NOT open blades one by one: search (two to four
+web_search calls), then call \`research_wall\` ONCE with everything. It tiles
+the whole briefing on screen in one go.`
 
 const bladeSchema = {
   title: z
     .string()
     .describe('Two to four words naming what this is, e.g. "REUTERS" or "MARK VII".'),
   kind: z
-    .enum(['article', 'image', 'gallery', 'video', 'embed', 'markup', 'camera'])
+    .enum(['article', 'image', 'gallery', 'video', 'embed', 'markup', 'camera', 'chart', 'stat'])
     .describe('What is being opened. See the tool description.'),
   url: z
     .string()
@@ -280,6 +291,26 @@ const bladeSchema = {
     .optional()
     .catch(undefined)
     .describe('Your own markup, for kind "markup", in the .hud-* design system.'),
+  chart: z
+    .object({
+      type: z.enum(['bar', 'line']).catch('bar'),
+      labels: z.array(z.coerce.string()),
+      values: z.array(z.coerce.number()),
+      unit: z.string().optional().catch(undefined),
+      caption: z.string().optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined)
+    .describe('For kind "chart": the numbers to draw.'),
+  stat: z
+    .object({
+      value: z.coerce.string(),
+      label: z.coerce.string(),
+      note: z.string().optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined)
+    .describe('For kind "stat": one headline figure.'),
   mode: z
     .enum(['reader', 'live'])
     .optional()
@@ -317,6 +348,57 @@ argument. You know those things. Overrule it whenever you have reason to.`
  * @param {(panel: object) => void} emit - pushes the panel to the browser
  * @param {(blade: object) => void} emitBlade - pushes a blade to the browser
  */
+const WALL_DESCRIPTION = `Put a whole research briefing on screen in one call: a tiled wall of cards.
+
+Use this for any "research / investigate / compare / brief me on" request, after
+two to four web_search calls. One call, everything in it — it is much faster
+than opening blades one at a time, and the screen tiles it automatically.
+
+Fill it from what you found; never invent a figure. Aim for:
+  stats     2-4 headline numbers ("≈20m", "$3.5bn", "74%"), each with a label
+            and a short note naming the source and date.
+  charts    1-2 bar or line charts of real figures (labels and values).
+  findings  3-5 short cards: a heading of two to five words and two or three
+            plain sentences.
+  images    0-3 picture URLs that appeared verbatim in a search result.
+  sources   the pages the figures came from.
+
+After calling it, speak one or two sentences with the conclusion. Do not read
+the wall aloud.`
+
+const wallSchema = {
+  topic: z.string().describe('What the briefing is about, two to four words.'),
+  stats: z
+    .array(z.object({ value: z.coerce.string(), label: z.coerce.string(), note: z.string().optional().catch(undefined) }))
+    .optional()
+    .catch(undefined),
+  charts: z
+    .array(
+      z.object({
+        title: z.coerce.string(),
+        type: z.enum(['bar', 'line']).catch('bar'),
+        labels: z.array(z.coerce.string()),
+        values: z.array(z.coerce.number()),
+        unit: z.string().optional().catch(undefined),
+        caption: z.string().optional().catch(undefined),
+      }),
+    )
+    .optional()
+    .catch(undefined),
+  findings: z
+    .array(z.object({ heading: z.coerce.string(), text: z.coerce.string() }))
+    .optional()
+    .catch(undefined),
+  images: z.array(z.string()).optional().catch(undefined),
+  sources: z
+    .array(z.object({ title: z.coerce.string(), url: z.string().optional().catch(undefined) }))
+    .optional()
+    .catch(undefined),
+}
+
+const esc = (t) =>
+  String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+
 export function displayServer(emit, emitBlade) {
   return createSdkMcpServer({
     name: 'jarvis',
@@ -391,6 +473,12 @@ export function displayServer(emit, emitBlade) {
         if (kind === 'markup' && !String(args.html ?? '').trim()) {
           return refuse('Not opened: kind "markup" needs an `html` body.')
         }
+        if (kind === 'chart' && !(args.chart?.values?.length && args.chart?.labels?.length)) {
+          return refuse('Not opened: kind "chart" needs `chart.labels` and `chart.values`.')
+        }
+        if (kind === 'stat' && !String(args.stat?.value ?? '').trim()) {
+          return refuse('Not opened: kind "stat" needs `stat.value` and `stat.label`.')
+        }
         if (['article', 'image', 'video', 'embed'].includes(kind) && !url) {
           return refuse(`Not opened: kind "${kind}" needs a \`url\`.`)
         }
@@ -403,14 +491,66 @@ export function displayServer(emit, emitBlade) {
           images: images.length ? images.slice(0, 8) : undefined,
           html: args.html || undefined,
           mode: args.mode ?? 'reader',
+          chart: kind === 'chart' ? args.chart : undefined,
+          stat: kind === 'stat' ? args.stat : undefined,
           // A reading column for anything meant to be read, a broad frame for
           // anything meant to be looked at. Getting this wrong is the difference
           // between an article you can follow and one in a letterbox.
-          size: args.size ?? (kind === 'article' ? 'tall' : 'wide'),
+          size:
+            args.size ??
+            (kind === 'article' ? 'tall' : kind === 'stat' || kind === 'chart' ? 'compact' : 'wide'),
           hold: args.hold ?? 'turn',
         }
         emitBlade(blade)
         return { content: [{ type: 'text', text: `Open on the blades as "${blade.title}".` }] }
+      }),
+
+      tool('research_wall', WALL_DESCRIPTION, wallSchema, async (args) => {
+        const topic = String(args.topic ?? '').trim().toUpperCase() || 'BRIEFING'
+        const id = () => `w${Date.now().toString(36)}-${(seq++).toString(36)}`
+        const out = []
+        for (const st of (args.stats ?? []).slice(0, 4)) {
+          if (!String(st.value ?? '').trim()) continue
+          out.push({ title: String(st.label).toUpperCase().slice(0, 40), kind: 'stat', stat: st, size: 'compact' })
+        }
+        for (const ch of (args.charts ?? []).slice(0, 3)) {
+          const n = Math.min(ch.labels?.length ?? 0, ch.values?.length ?? 0)
+          if (!n) continue
+          out.push({
+            title: String(ch.title).toUpperCase().slice(0, 40),
+            kind: 'chart',
+            chart: { type: ch.type, labels: ch.labels.slice(0, n), values: ch.values.slice(0, n), unit: ch.unit, caption: ch.caption },
+            size: 'wide',
+          })
+        }
+        for (const f of (args.findings ?? []).slice(0, 5)) {
+          out.push({
+            title: String(f.heading).toUpperCase().slice(0, 40),
+            kind: 'markup',
+            html: `<p class="hud-note">${esc(f.text)}</p>`,
+            size: 'compact',
+          })
+        }
+        for (const url of (args.images ?? []).filter((u) => /^https?:\/\//.test(u)).slice(0, 3)) {
+          out.push({ title: topic, kind: 'image', url, size: 'compact' })
+        }
+        const sources = (args.sources ?? []).slice(0, 8)
+        if (sources.length) {
+          out.push({
+            title: 'SOURCES',
+            kind: 'markup',
+            html:
+              '<div>' +
+              sources.map((x) => `<p class="hud-note">${esc(x.title)}${x.url ? `<br><small>${esc(x.url)}</small>` : ''}</p>`).join('') +
+              '</div>',
+            size: 'compact',
+          })
+        }
+        if (out.length < 2) {
+          return refuse('Not shown: a wall needs at least two cards — stats, charts or findings.')
+        }
+        for (const b of out) emitBlade({ id: id(), hold: 'sticky', mode: 'reader', ...b })
+        return { content: [{ type: 'text', text: `Wall "${topic}" is on screen with ${out.length} cards.` }] }
       }),
 
       tool(

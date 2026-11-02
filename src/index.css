@@ -1,11 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600&family=JetBrains+Mono:wght@300;400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600&family=JetBrains+Mono:wght@300;400&family=Permanent+Marker&display=swap');
 
 :root {
   /* The interface cyan. `--accent` is re-declared per phase and per panel;
      this one stays put and is what anything neutral pins itself to. */
-  --interface: #00e5ff;
+  --interface: #ff2d4a;
   --accent: var(--interface);
-  --bg: #01060c;
+  --bg: #0a0205;
   font-family: 'Chakra Petch', system-ui, sans-serif;
   color-scheme: dark;
 }
@@ -34,8 +34,8 @@ body::after {
     radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.55) 100%),
     repeating-linear-gradient(
       0deg,
-      rgba(0, 229, 255, 0.028) 0px,
-      rgba(0, 229, 255, 0.028) 1px,
+      rgba(255, 45, 74, 0.028) 0px,
+      rgba(255, 45, 74, 0.028) 1px,
       transparent 1px,
       transparent 3px
     );
@@ -722,7 +722,7 @@ kbd {
   font-size: 12px;
   line-height: 1.55;
   opacity: 0.8;
-  color: #dff4ff;
+  color: #ffe3e8;
 }
 
 .hud-grid {
@@ -803,19 +803,19 @@ kbd {
   z-index: 7;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at center, #04121c 0%, #01060c 70%);
+  background: radial-gradient(ellipse at center, #1a050a 0%, #0a0205 70%);
   border: 0;
   cursor: pointer;
   font-family: inherit;
-  color: #4fd6ff;
+  color: #ff5a70;
 }
 
 .ignition-ring {
   position: absolute;
   width: 240px;
   height: 240px;
-  border: 1px solid rgba(79, 214, 255, 0.28);
-  border-top-color: rgba(79, 214, 255, 0.9);
+  border: 1px solid rgba(255, 90, 112, 0.28);
+  border-top-color: rgba(255, 90, 112, 0.9);
   border-radius: 50%;
 }
 
@@ -830,7 +830,7 @@ kbd {
   font-size: 15px;
   letter-spacing: 0.52em;
   text-indent: 0.52em; /* balance the trailing letter-space */
-  text-shadow: 0 0 30px rgba(79, 214, 255, 0.7);
+  text-shadow: 0 0 30px rgba(255, 90, 112, 0.7);
 }
 
 .ignition-sub {
@@ -841,7 +841,7 @@ kbd {
 }
 
 .ignition:hover .ignition-word {
-  text-shadow: 0 0 44px rgba(79, 214, 255, 1);
+  text-shadow: 0 0 44px rgba(255, 90, 112, 1);
 }
 
 /* ------------------------------------------------------------------- boot */
@@ -1431,7 +1431,7 @@ kbd {
 }
 
 .fx-glitch::before { background: rgba(255, 40, 90, 0.13) }
-.fx-glitch::after  { background: rgba(40, 220, 255, 0.13); animation-direction: reverse }
+.fx-glitch::after  { background: rgba(255, 60, 90, 0.13); animation-direction: reverse }
 
 @keyframes fxChroma {
   0%, 100% { transform: translateX(0);    opacity: 0 }
@@ -1496,7 +1496,7 @@ kbd {
   overflow-y: auto;
   padding: 0.75rem 0.9rem;
   background: rgba(2, 10, 12, 0.94);
-  border: 1px solid var(--accent, #19d8d2);
+  border: 1px solid var(--accent, #ff2d4a);
   border-radius: 2px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.72rem;
@@ -1508,7 +1508,7 @@ kbd {
 
 .diag-head {
   letter-spacing: 0.18em;
-  color: var(--accent, #19d8d2);
+  color: var(--accent, #ff2d4a);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   padding-bottom: 0.4rem;
   margin-bottom: 0.5rem;
@@ -1895,4 +1895,175 @@ kbd {
   object-fit: cover;
   transform: scaleX(-1);
   background: #000;
+}
+
+/* ===================================================================
+   STRING additions: toolbar, reactor wordmark, research wall, charts.
+   =================================================================== */
+
+/* -------- toolbar (top right, above the status line) -------- */
+.toolbar {
+  position: fixed;
+  top: 14px;
+  right: 92px;
+  z-index: 8;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+.tb-btn {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, rgba(10, 2, 5, 0.7));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+.tb-btn:hover:not(:disabled),
+.tb-on {
+  color: #fff4f6;
+  background: color-mix(in srgb, var(--accent) 28%, rgba(10, 2, 5, 0.8));
+  box-shadow: 0 0 14px -4px var(--accent);
+}
+.tb-btn:disabled { opacity: 0.35; cursor: default }
+.tb-history {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: rgba(10, 2, 5, 0.94);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  backdrop-filter: blur(10px);
+}
+.tb-history button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: #ffe6ea;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.tb-history button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent) }
+.tbh-kind { color: var(--accent); opacity: 0.7; font-size: 9px }
+
+/* -------- the wordmark inside the reactor -------- */
+.reactor-mark {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  transform: translate(-50%, -50%) rotate(-6deg);
+  font-family: 'Permanent Marker', 'Chakra Petch', cursive;
+  font-size: calc(min(9vmin, 92px) * var(--rm-scale, 1));
+  letter-spacing: 0.02em;
+  color: #fff3f5;
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.55),
+    0 0 18px var(--accent),
+    0 0 42px color-mix(in srgb, var(--accent) 70%, transparent);
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 400ms ease, font-size 500ms ease;
+}
+.reactor-mark-dim { opacity: 0.18 }
+
+/* -------- the research wall: every blade tiled at once -------- */
+.blades-wall {
+  position: fixed;
+  inset: 108px 72px 96px;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: minmax(190px, 1fr);
+  grid-auto-flow: dense;
+  gap: 14px;
+  overflow-y: auto;
+  pointer-events: none;
+}
+.bw-cell { position: relative; min-height: 0; pointer-events: none }
+.bw-wide,
+.bw-full,
+.bw-video,
+.bw-embed,
+.bw-gallery { grid-column: span 2 }
+.bw-tall,
+.bw-article { grid-row: span 2 }
+.blades-wall .bl-slot { position: absolute; inset: 0; display: block }
+.blades-wall .bl {
+  position: absolute;
+  inset: 0;
+  width: auto !important;
+  height: auto !important;
+  transform: none !important;
+}
+.blades-wall .bl-grip { display: none }
+@media (max-width: 700px) {
+  .blades-wall { inset: 70px 12px 90px; grid-template-columns: 1fr }
+  .bw-wide, .bw-full, .bw-video, .bw-embed, .bw-gallery { grid-column: auto }
+}
+
+/* -------- native charts -------- */
+.bl-chart {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 10px 12px 8px;
+}
+.bl-chart svg { flex: 1; min-height: 0; width: 100% }
+.ch-grid { stroke: color-mix(in srgb, var(--accent) 14%, transparent); stroke-width: 1 }
+.ch-axis { stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 1.5 }
+.ch-bar {
+  fill: color-mix(in srgb, #ffffff 82%, var(--accent));
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+.ch-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round }
+.ch-dot { fill: #fff3f5; stroke: var(--accent); stroke-width: 2 }
+.ch-val { fill: #fff3f5; font: 600 15px 'JetBrains Mono', monospace }
+.ch-lab { fill: color-mix(in srgb, var(--accent) 70%, #ffffff); font: 400 13px 'JetBrains Mono', monospace }
+.ch-cap {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: #f4d6dc;
+}
+
+/* -------- the big-number card -------- */
+.bl-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  padding: 16px 20px;
+}
+.st-value {
+  font: 600 clamp(36px, 6vw, 64px) / 1 'Chakra Petch', sans-serif;
+  color: #fff3f5;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.st-label { font-size: 11px; letter-spacing: 0.18em; color: var(--accent) }
+.st-note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  text-transform: none;
+  letter-spacing: 0.03em;
+  color: #f4d6dc;
 }

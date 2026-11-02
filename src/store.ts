@@ -39,7 +39,7 @@ export type Panel = {
 export type Blade = {
   id: string
   title: string
-  kind: 'article' | 'image' | 'gallery' | 'video' | 'embed' | 'markup' | 'camera'
+  kind: 'article' | 'image' | 'gallery' | 'video' | 'embed' | 'markup' | 'camera' | 'chart' | 'stat'
   /** article / image / video / embed. */
   url?: string
   /** gallery. */
@@ -48,9 +48,28 @@ export type Blade = {
   html?: string
   /** article only: the words restyled, or the real page. */
   mode?: 'reader' | 'live'
+  /** chart: drawn natively, so the model sends numbers rather than markup. */
+  chart?: BladeChart
+  /** stat: one big figure, the "≈20m" card on a research wall. */
+  stat?: { value: string; label: string; note?: string }
   size: 'compact' | 'tall' | 'wide' | 'full'
   hold: 'turn' | 'sticky'
 }
+
+export type BladeChart = {
+  type: 'bar' | 'line'
+  labels: string[]
+  values: number[]
+  unit?: string
+  caption?: string
+}
+
+/**
+ * How open blades are arranged. 'stack' is the original pile with depth;
+ * 'wall' tiles them in a grid, the research-wall look. 'auto' stacks one or two
+ * and tiles from three, which is where a pile starts hiding what it holds.
+ */
+export type BladeLayout = 'auto' | 'stack' | 'wall'
 
 export type Turn = {
   id: string
@@ -238,6 +257,9 @@ type State = {
   focusedBlade: string | null
   /** A blade thrown to full screen, or null. */
   expandedBlade: string | null
+  bladeLayout: BladeLayout
+  /** Every blade opened this session, newest last, for the HISTORY drawer. */
+  bladeHistory: Blade[]
   /** JARVIS's control over his own appearance. UI_DEFAULTS == the stock look. */
   ui: UiState
 
@@ -252,6 +274,9 @@ type State = {
   clearBlades: () => void
   focusBlade: (id: string | null) => void
   expandBlade: (id: string | null) => void
+  setBladeLayout: (layout: BladeLayout) => void
+  /** CLEAR VIEW: closes everything, sticky blades included. */
+  closeAllBlades: () => void
   setPhase: (p: Phase) => void
   setLevel: (l: number) => void
   setCaption: (c: string) => void
@@ -285,6 +310,8 @@ export const useStore = create<State>((set) => ({
   blades: [],
   focusedBlade: null,
   expandedBlade: null,
+  bladeLayout: 'auto',
+  bladeHistory: [],
   bootNote: '',
   ui: defaultUi(),
 
@@ -320,11 +347,13 @@ export const useStore = create<State>((set) => ({
    */
   pushBlade: (blade) =>
     set((s) => {
-      const next = [...s.blades.filter((b) => b.id !== blade.id), blade].slice(-6)
+      // Twelve, not six: a research wall is many small tiles at once.
+      const next = [...s.blades.filter((b) => b.id !== blade.id), blade].slice(-12)
+      const bladeHistory = [...s.bladeHistory.filter((b) => b.id !== blade.id), blade].slice(-40)
       // A new blade comes to the front. Leaving the old focus in place would
       // open something the user asked for and then hide it behind what they
       // were looking at before.
-      return { blades: next, focusedBlade: blade.id }
+      return { blades: next, focusedBlade: blade.id, bladeHistory }
     }),
   closeBlade: (id) =>
     set((s) => ({
@@ -332,6 +361,8 @@ export const useStore = create<State>((set) => ({
       focusedBlade: s.focusedBlade === id ? null : s.focusedBlade,
       expandedBlade: s.expandedBlade === id ? null : s.expandedBlade,
     })),
+  setBladeLayout: (bladeLayout) => set({ bladeLayout }),
+  closeAllBlades: () => set({ blades: [], focusedBlade: null, expandedBlade: null }),
   // Same contract as panels: 'turn' blades go when the user speaks again,
   // 'sticky' ones stay until something replaces them.
   clearBlades: () =>
@@ -417,14 +448,14 @@ export const useStore = create<State>((set) => ({
 
 /** Colour identity per phase — shared by the 3D scene and the 2D HUD. */
 export const phaseColor: Record<Phase, string> = {
-  offline: '#0d4a4a',
-  boot: '#17b3b3',
-  dormant: '#12908f',
-  waking: '#5cf2ef',
-  listening: '#19d8d2',
-  thinking: '#f0a93c',
-  tooling: '#a97bff',
-  speaking: '#3ef2a8',
+  offline: '#4a0d14',
+  boot: '#d81b33',
+  dormant: '#a8122a',
+  waking: '#ff5a70',
+  listening: '#ff2d4a',
+  thinking: '#ff7a45',
+  tooling: '#ff3d8a',
+  speaking: '#ff4d6a',
 }
 
 /**

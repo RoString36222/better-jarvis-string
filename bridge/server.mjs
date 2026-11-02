@@ -21,6 +21,7 @@ import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
+import { searchServer, searchSource } from './search.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -103,6 +104,34 @@ const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
  * — claude-sonnet-5 is noticeably snappier on camera if Opus feels slow.
  */
 const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
+
+/**
+ * A second, faster model for the turns that need no thinking: retinting the
+ * face, small talk. Unset, every turn goes to MODEL as before.
+ *
+ * Routing is keyword rules, not a classifier — a classifier is one more model
+ * round trip in front of every answer, which is the very latency this exists
+ * to save. Both models run in the same session, switched with setModel(), so
+ * "make that red" after a question still knows what "that" is.
+ *
+ * Anything that smells of a task goes to MODEL even when it also mentions the
+ * face: "search for red cars" is a search, not a retint.
+ */
+const FAST_MODEL = process.env.JARVIS_FAST_MODEL || null
+
+const FACE_WORDS =
+  /\b(red|blue|green|gold|purple|orange|pink|white|yellow|teal|cyan|colou?r|theme|bigger|smaller|larger|size|spin|rotate|faster|slower|glitch|pulse|hide|show|transcript|reset|default|reactor|orbit)\b/i
+const SMALL_TALK =
+  /^(hi|hello|hey|yo|thanks|thank you|cheers|good (morning|afternoon|evening|night)|how are you|what'?s up|tell me a joke|another joke|bye|goodbye)\b/i
+const TASK_WORDS =
+  /\b(search|find|look up|google|email|mail|gmail|message|send|call|phone|open|play|weather|news|calendar|remind|image|picture|photo|draw|generate|camera|watch|why|how many|how much|calculate|explain|what is|who is|when|where)\b/i
+
+const routeModel = (text) => {
+  if (!FAST_MODEL) return MODEL
+  const t = text.trim()
+  if (TASK_WORDS.test(t) || t.split(/\s+/).length > 12) return MODEL
+  return FACE_WORDS.test(t) || SMALL_TALK.test(t) ? FAST_MODEL : MODEL
+}
 
 /**
  * How hard the model thinks before answering.
@@ -279,6 +308,9 @@ function decideTool(name) {
     // indicator the user can see for as long as it is live.
     if (server === 'jarvis_eyes') return true
 
+    // Search reads the web and changes nothing.
+    if (server === 'jarvis_search') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -290,7 +322,7 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
-const SYSTEM_PROMPT = `You are JARVIS. You are speaking out loud to one person.
+const SYSTEM_PROMPT = `You are STRING, a personal AI assistant. Your name is STRING; if asked, that is who you are. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
 words. Every word is read aloud and the user waits in silence while it plays, so
@@ -998,13 +1030,15 @@ const wss = new WebSocketServer({
     done(true)
   },
 })
-server.listen(PORT)
+server.listen(PORT, '127.0.0.1')
 
 console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
 console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
+console.log(`[jarvis] web search via ${searchSource()}`)
+if (FAST_MODEL) console.log(`[jarvis] fast model ${FAST_MODEL} for face commands and small talk`)
 console.log(
   `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
     (ALLOW_WRITES ? '' : ' — set JARVIS_ALLOW_WRITES=1 to permit shell/file/device actions'),
@@ -1190,6 +1224,7 @@ wss.on('connection', (socket) => {
     if (!failed) sendTurn({ type: 'tool', name })
   }
 
+  let currentModel = MODEL
   const session = query({
     prompt: userMessages(),
     options: {
@@ -1214,6 +1249,7 @@ wss.on('connection', (socket) => {
         jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
+        jarvis_search: searchServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
@@ -1245,6 +1281,9 @@ wss.on('connection', (socket) => {
       // the settings files `settingSources: []` deliberately stops loading, so
       // without this line nothing in the project has a say at all.
       model: MODEL,
+      // Anthropic-side search: dead behind any other provider's gateway, and
+      // the model burns minutes discovering that. jarvis_search replaces it.
+      disallowedTools: ['WebSearch'],
       effort: EFFORT,
       maxTurns: 24,
       permissionMode: 'default',
@@ -1271,7 +1310,7 @@ wss.on('connection', (socket) => {
               // Every word of this can end up spoken, so it carries no command
               // to read out — the persona is forbidden from saying one aloud.
               message:
-                'Blocked: JARVIS is running in read-only mode and cannot take' +
+                'Blocked: STRING is running in read-only mode and cannot take' +
                 ' actions that change anything. Tell the user this action is' +
                 ' unavailable until they enable write access on the machine.',
             }
@@ -1419,7 +1458,16 @@ wss.on('connection', (socket) => {
        */
       const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
-      void settling.then(() => {
+      void settling.then(async () => {
+        const target = routeModel(text)
+        if (target !== currentModel) {
+          // A failed switch is not worth a lost question: answer on the old model.
+          await session
+            .setModel(target)
+            .then(() => (currentModel = target))
+            .catch((err) => console.warn('[jarvis] model switch failed', err?.message))
+        }
+        if (FAST_MODEL) console.log(`[jarvis] route ${currentModel} <- "${text.slice(0, 60)}"`)
         answering = id
         if (deliver) {
           const resolve = deliver

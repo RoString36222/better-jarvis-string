@@ -78,7 +78,7 @@ const WAKE_DEBOUNCE = 1500
  * indication why. Better a rare false wake than a name that does not answer.
  */
 const WAKE =
-  /\b(?:hey|hi|ok|okay|yo)?\s*(?:jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
+  /\b(?:hey|hi|ok|okay|yo)?\s*(?:string|strings|sting|strung|stringy|jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
 
 /** Everything after the wake phrase, which is usually the actual command. */
 function afterWake(text: string): string {
@@ -267,7 +267,7 @@ const norm = (s: string) =>
  * would be the single most infuriating failure this file could have.
  */
 const OVERRIDE =
-  /\b(stop|wait|jarvis|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no)\b/i
+  /\b(stop|wait|string|jarvis|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no)\b/i
 
 /**
  * Words too common to be evidence of anything.
@@ -618,6 +618,26 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
   let lastAlive = Date.now()
   let silenceTimer: ReturnType<typeof setTimeout> | null = null
 
+  /**
+   * Result slots already used. Chrome keeps one growing result list per
+   * session, and a phrase is sent after a quiet gap even when its last words
+   * are still interim. Those words then come back a moment later as a final
+   * result in the same slot, and were sent a second time — the user heard
+   * "look at my Gmail" answered twice. Slots below `consumed` are never read
+   * again. A slot that was still interim when it was sent is only partly
+   * used: the user may carry on talking into it, so only its first
+   * `partialWords` words are skipped.
+   */
+  let seen = 0
+  let consumed = 0
+  let partialSlot = -1
+  let partialWords = 0
+  /** The last slot at the last result event: still interim, and its word count. */
+  let tailInterim = false
+  let tailWords = 0
+
+  const words = (s: string) => s.trim().split(/\s+/).filter(Boolean)
+
   /** Same assembly rules as the premium path — a pause is not a full stop. */
   const assemble = makeAssembler({
     emit: (text) => {
@@ -640,6 +660,14 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
 
   const reset = () => {
     clearSilence()
+    if (tailInterim && seen > 0) {
+      consumed = seen - 1
+      partialSlot = seen - 1
+      partialWords = tailWords
+    } else {
+      consumed = seen
+      partialSlot = -1
+    }
     settled = ''
     interim = ''
     started = false
@@ -687,14 +715,25 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     touch()
     const mode = h.mode()
     diag.mode = mode
+    seen = e.results.length
+    const tail = e.results[seen - 1]
+    tailInterim = Boolean(tail && !tail.isFinal)
+    tailWords = tail ? words(tail[0].transcript as string).length : 0
     if (mode === 'deaf') {
+      // Nothing said while deaf may surface later as a final result.
+      consumed = seen
+      partialSlot = -1
       interim = ''
       return
     }
     let fresh = ''
     interim = ''
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const chunk = e.results[i][0].transcript as string
+    for (let i = Math.max(e.resultIndex, consumed); i < e.results.length; i++) {
+      let chunk = e.results[i][0].transcript as string
+      if (i === partialSlot) {
+        const rest = words(chunk).slice(partialWords).join(' ')
+        chunk = rest ? ` ${rest}` : ''
+      }
       if (e.results[i].isFinal) fresh += chunk
       else interim += chunk
     }
@@ -762,6 +801,12 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     rec.interimResults = true
     rec.lang = 'en-GB'
     rec.onstart = () => {
+      // A new recogniser starts a new result list.
+      seen = 0
+      consumed = 0
+      partialSlot = -1
+      tailInterim = false
+      tailWords = 0
       running = true
       diag.running = true
       diag.sessions++

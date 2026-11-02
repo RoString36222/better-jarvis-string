@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useStore, type Blade } from '../store'
+import { useStore, type Blade, type BladeChart } from '../store'
 import { BRIDGE_HTTP_URL } from '../config'
 import { sanitisePanelHtml } from './sanitise'
 import { frameSpan, peaceScroll, pinchCount } from '../lib/hands'
@@ -157,8 +157,86 @@ const CameraView = memo(function CameraView() {
   return <video ref={el} className="bl-camera" autoPlay playsInline muted />
 })
 
+/* ------------------------------------------------------------------ charts */
+
+/**
+ * Charts drawn here rather than in model-written markup: the model sends
+ * numbers, and every chart on a wall comes out in one hand — same axis, same
+ * accent, same type — instead of eight dialects of inline SVG.
+ */
+function ChartView({ chart }: { chart: BladeChart }) {
+  const n = Math.min(chart.labels.length, chart.values.length, 24)
+  const values = chart.values.slice(0, n).map((v) => (Number.isFinite(v) ? v : 0))
+  const labels = chart.labels.slice(0, n)
+  if (!n) return <p className="bl-note">No numbers to chart.</p>
+  const max = Math.max(...values, 0) || 1
+  const W = 600
+  const H = 300
+  const pad = { l: 8, r: 8, t: 26, b: 34 }
+  const iw = W - pad.l - pad.r
+  const ih = H - pad.t - pad.b
+  const step = iw / n
+  const y = (v: number) => pad.t + ih - (Math.max(v, 0) / max) * ih
+  const fmt = (v: number) =>
+    (Math.abs(v) >= 1e9 ? `${+(v / 1e9).toFixed(1)}b` : Math.abs(v) >= 1e6 ? `${+(v / 1e6).toFixed(1)}m`
+      : Math.abs(v) >= 1e4 ? `${+(v / 1e3).toFixed(1)}k` : `${+v.toFixed(2)}`) + (chart.unit ?? '')
+  const points = values.map((v, i) => `${pad.l + step * (i + 0.5)},${y(v)}`).join(' ')
+  return (
+    <div className="bl-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={chart.caption ?? 'chart'}>
+        {[0.25, 0.5, 0.75, 1].map((f) => (
+          <line key={f} className="ch-grid" x1={pad.l} x2={W - pad.r} y1={pad.t + ih - f * ih} y2={pad.t + ih - f * ih} />
+        ))}
+        <line className="ch-axis" x1={pad.l} x2={W - pad.r} y1={pad.t + ih} y2={pad.t + ih} />
+        {chart.type === 'line' ? (
+          <>
+            <polyline className="ch-line" points={points} />
+            {values.map((v, i) => (
+              <circle key={i} className="ch-dot" cx={pad.l + step * (i + 0.5)} cy={y(v)} r={4} />
+            ))}
+          </>
+        ) : (
+          values.map((v, i) => (
+            <rect
+              key={i}
+              className="ch-bar"
+              x={pad.l + step * i + step * 0.18}
+              width={step * 0.64}
+              y={y(v)}
+              height={pad.t + ih - y(v)}
+            />
+          ))
+        )}
+        {values.map((v, i) => (
+          <text key={`v${i}`} className="ch-val" x={pad.l + step * (i + 0.5)} y={y(v) - 7} textAnchor="middle">
+            {fmt(v)}
+          </text>
+        ))}
+        {labels.map((l, i) => (
+          <text key={`l${i}`} className="ch-lab" x={pad.l + step * (i + 0.5)} y={H - 12} textAnchor="middle">
+            {String(l).slice(0, 14)}
+          </text>
+        ))}
+      </svg>
+      {chart.caption && <p className="ch-cap">{chart.caption}</p>}
+    </div>
+  )
+}
+
 const Body = memo(function Body({ blade }: { blade: Blade }) {
   if (blade.kind === 'camera') return <CameraView />
+
+  if (blade.kind === 'chart' && blade.chart) return <ChartView chart={blade.chart} />
+
+  if (blade.kind === 'stat' && blade.stat) {
+    return (
+      <div className="bl-stat">
+        <span className="st-value">{blade.stat.value}</span>
+        <span className="st-label">{blade.stat.label}</span>
+        {blade.stat.note && <p className="st-note">{blade.stat.note}</p>}
+      </div>
+    )
+  }
 
   if (blade.kind === 'article' && blade.url) {
     return (
@@ -528,7 +606,7 @@ function Card({
           <span className="bl-title">{blade.title}</span>
           <span className="bl-kind">{blade.kind}</span>
           <span className="bl-acts">
-            {(size || pos.x || pos.y) && !expanded && (
+            {Boolean(size || pos.x || pos.y) && !expanded && (
               <button
                 className="bl-btn"
                 onClick={(e) => {
@@ -584,6 +662,7 @@ export function Blades() {
   const focusBlade = useStore((s) => s.focusBlade)
   const expandBlade = useStore((s) => s.expandBlade)
   const closeBlade = useStore((s) => s.closeBlade)
+  const bladeLayout = useStore((s) => s.bladeLayout)
 
   /**
    * Newest first, then whichever the user pulled forward lifted to the front.
@@ -645,6 +724,32 @@ export function Blades() {
   }, [front, expandedBlade, expandBlade, closeBlade, cycle])
 
   if (!blades.length) return null
+
+  // The research wall: every blade tiled at once, in the order they arrived,
+  // so a briefing reads left to right the way it was assembled.
+  const wall =
+    !expandedBlade && (bladeLayout === 'wall' || (bladeLayout === 'auto' && blades.length >= 3))
+  if (wall) {
+    return (
+      <div className="blades-wall">
+        <AnimatePresence>
+          {blades.map((blade) => (
+            <div key={blade.id} className={`bw-cell bw-${blade.kind} bw-${blade.size}`}>
+              <Card
+                blade={blade}
+                depth={0}
+                focused={blade.id === front?.id}
+                expanded={false}
+                onFocus={() => focusBlade(blade.id)}
+                onExpand={() => expandBlade(blade.id)}
+                onClose={() => closeBlade(blade.id)}
+              />
+            </div>
+          ))}
+        </AnimatePresence>
+      </div>
+    )
+  }
 
   return (
     <div className={`blades-stack${expandedBlade ? ' blades-stack-full' : ''}`}>

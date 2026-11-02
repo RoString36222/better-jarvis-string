@@ -1,3 +1,35 @@
+# Better JARVIS (S.T.R.I.N.G.)
+
+A red, research-focused fork of [adewaskar/jarvis](https://github.com/adewaskar/jarvis)
+(MIT, by Aditya Dewaskar) that runs on any Anthropic-compatible model gateway.
+
+**What this fork adds**
+
+- **Research wall** — "Hey String, research X" tiles a grid of stat cards, native
+  bar/line charts, findings, images and sources (one `research_wall` tool call).
+- **Toolbar** — HISTORY, TIDY (grid ↔ stack), CLEAR VIEW, CAMERA.
+- **Native `chart` and `stat` blades**, so the model sends numbers, not markup.
+- **`web_search` tool** (`bridge/search.mjs`) — Serper or Brave Search with a key,
+  Wikipedia without one. Claude Code's built-in WebSearch is disabled because it
+  does not work behind non-Anthropic gateways.
+- **Optional two-model routing** — `JARVIS_FAST_MODEL` sends face commands and
+  small talk to a faster model in the same session.
+- Red theme, calmer scene, sharper reactor ring, "Hey String" wake word,
+  bridge bound to 127.0.0.1, Chrome double-transcript fix (from
+  [erte-del/Jarvis](https://github.com/erte-del/Jarvis)).
+
+**Run it**
+
+```bash
+npm install
+cp .kimi.env.example .kimi.env   # fill in your gateway URL and token
+./start-kimi.sh                  # UI on http://localhost:5174
+```
+
+Use Chrome (Brave blocks browser speech recognition) or add an ElevenLabs key.
+
+---
+
 # J.A.R.V.I.S.
 
 A browser voice assistant with an Iron Man holographic interface. Say
