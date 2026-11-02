@@ -281,7 +281,7 @@ const VETO_EXEMPT = new Set([
   'openrouter__send-feedback',
 ])
 
-function decideTool(name) {
+function decideTool(name, input) {
   if (READ_ONLY_BUILTINS.has(name)) return true
   if (WRITE_BUILTINS.has(name)) return ALLOW_WRITES
 
@@ -317,7 +317,15 @@ function decideTool(name) {
     }
     // The session tools this bridge is developed inside count as read-only too.
     if (READ_ONLY_MCP.has(server) || server.startsWith('ccd_session')) return true
-    return READ_VERB.test(tool) ? true : ALLOW_WRITES
+    if (READ_VERB.test(tool)) return true
+    // One tool, many operations: Grafana's `alerting_manage_rules` is a read
+    // with operation "list" and would be an edit with any other. The name says
+    // nothing, so read the operation it was actually called with.
+    const op = input?.operation ?? input?.action
+    if (typeof op === 'string' && (READ_VERB.test(op) || /^(versions|history|status|summary)$/i.test(op))) {
+      return true
+    }
+    return ALLOW_WRITES
   }
   return ALLOW_WRITES
 }
@@ -1300,8 +1308,8 @@ wss.on('connection', (socket) => {
       // through a `Bash: echo hello` without asking, and only reaches us for
       // something with a consequence, like a `touch`. So a deny here is
       // reliable; an absence of a call here is not proof nothing ran.
-      canUseTool: async (toolName) => {
-        const ok = decideTool(toolName)
+      canUseTool: async (toolName, input) => {
+        const ok = decideTool(toolName, input)
         console.log(`[jarvis] tool ${toolName} -> ${ok ? 'allow' : 'deny'}`)
         return ok
           ? { behavior: 'allow' }

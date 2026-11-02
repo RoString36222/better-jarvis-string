@@ -242,7 +242,8 @@ Choosing what to open:
             \`chart: { type: "bar" | "line", labels: [...], values: [...],
             unit?: "%", caption?: "one line saying what it shows and where it is from" }\`.
             Use real figures you found, never invented ones.
-  stat    — one big figure on its own card, e.g. "≈20m". Send
+  stat    — one big figure on its own card, e.g. "≈20m". Use it whenever the
+            answer is a single number the user asked to see. Send
             \`stat: { value: "≈20m", label: "QUEST HEADSETS SOLD", note?: "source, date" }\`.
   camera  — the live view from the user's camera, on screen. Open it when they
             ask to see the camera, or when they want you to watch them do
