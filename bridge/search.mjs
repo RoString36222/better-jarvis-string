@@ -75,6 +75,75 @@ async function wikipedia(q, n) {
   })
 }
 
+
+// ---------------------------------------------------------------- weather
+
+/**
+ * Old names the geocoder does not know, or knows as somewhere else entirely:
+ * "Bangalore" resolves to a town in Pakistan.
+ */
+const CITY_ALIASES = {
+  bangalore: 'Bengaluru', bombay: 'Mumbai', madras: 'Chennai', calcutta: 'Kolkata',
+  mysore: 'Mysuru', trivandrum: 'Thiruvananthapuram', cochin: 'Kochi', poona: 'Pune',
+  gurgaon: 'Gurugram', baroda: 'Vadodara', mangalore: 'Mangaluru',
+}
+const HOME_CITY = process.env.STRING_HOME_CITY || 'Bengaluru'
+
+/** WMO weather codes, as words that read well aloud. */
+const WMO = {
+  0: 'clear', 1: 'mostly clear', 2: 'partly cloudy', 3: 'overcast', 45: 'fog', 48: 'freezing fog',
+  51: 'light drizzle', 53: 'drizzle', 55: 'heavy drizzle', 61: 'light rain', 63: 'rain',
+  65: 'heavy rain', 66: 'freezing rain', 67: 'heavy freezing rain', 71: 'light snow', 73: 'snow',
+  75: 'heavy snow', 77: 'snow grains', 80: 'light showers', 81: 'showers', 82: 'violent showers',
+  85: 'snow showers', 86: 'heavy snow showers', 95: 'thunderstorm', 96: 'thunderstorm with hail',
+  99: 'severe thunderstorm with hail',
+}
+
+async function weather(place, days) {
+  const asked = String(place ?? '').trim() || HOME_CITY
+  const name = CITY_ALIASES[asked.toLowerCase()] ?? asked
+  const geo = await get(
+    `https://geocoding-api.open-meteo.com/v1/search?count=10&language=en&name=${encodeURIComponent(name)}`,
+  )
+  // Most populous match: "Chennai" should not resolve to the airport.
+  const hit = [...(geo.results ?? [])].sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0]
+  if (!hit) return null
+  const f = await get(
+    `https://api.open-meteo.com/v1/forecast?latitude=${hit.latitude}&longitude=${hit.longitude}` +
+      '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+      `&forecast_days=${days}&timezone=auto`,
+  )
+  const c = f.current ?? {}
+  const d = f.daily ?? {}
+  return {
+    place: `${hit.name}${hit.admin1 ? `, ${hit.admin1}` : ''}, ${hit.country}`,
+    local_time: c.time,
+    now: {
+      conditions: WMO[c.weather_code] ?? `code ${c.weather_code}`,
+      temperature_c: c.temperature_2m,
+      feels_like_c: c.apparent_temperature,
+      humidity_pct: c.relative_humidity_2m,
+      wind_kmh: c.wind_speed_10m,
+    },
+    days: (d.time ?? []).map((date, i) => ({
+      date,
+      conditions: WMO[d.weather_code?.[i]] ?? `code ${d.weather_code?.[i]}`,
+      high_c: d.temperature_2m_max?.[i],
+      low_c: d.temperature_2m_min?.[i],
+      rain_chance_pct: d.precipitation_probability_max?.[i],
+    })),
+    source: 'Open-Meteo',
+  }
+}
+
+const WEATHER_DESCRIPTION = `Current weather and forecast for a place (Open-Meteo, live).
+
+Use this for any weather question — web_search cannot answer them. If the user
+names no place, leave \`place\` empty: it defaults to their home city
+(${HOME_CITY}). For one figure put a \`stat\` blade up (e.g. "24°C"); for a
+multi-day forecast a \`line\` chart of the highs works well.`
+
 export const searchSource = () =>
   process.env.SERPER_API_KEY ? 'serper' : process.env.BRAVE_SEARCH_API_KEY ? 'brave' : 'wikipedia'
 
@@ -119,6 +188,23 @@ export function searchServer() {
               isError: true,
               content: [{ type: 'text', text: `Search failed (${source}): ${err?.message ?? err}` }],
             }
+          }
+        },
+      ),
+      tool(
+        'weather',
+        WEATHER_DESCRIPTION,
+        {
+          place: z.string().optional().catch(undefined).describe('City name. Empty = home city.'),
+          days: z.number().int().min(1).max(7).optional().catch(undefined),
+        },
+        async (args) => {
+          try {
+            const w = await weather(args.place, args.days ?? 1)
+            if (!w) return { isError: true, content: [{ type: 'text', text: `No place called "${args.place}" found.` }] }
+            return { content: [{ type: 'text', text: JSON.stringify(w, null, 1) }] }
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text', text: `Weather failed: ${err?.message ?? err}` }] }
           }
         },
       ),

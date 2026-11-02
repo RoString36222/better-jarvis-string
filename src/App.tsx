@@ -308,6 +308,24 @@ export default function App() {
     void respond(said)
   }
 
+  /**
+   * Typed questions, from the ask box. No wake word and no microphone needed,
+   * which also makes this the way in on browsers that block speech
+   * recognition (Brave). Waits only for the power-up to finish.
+   */
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const text = String((e as CustomEvent<string>).detail ?? '').trim()
+      const phase = store.getState().phase
+      if (!text || phase === 'offline' || phase === 'boot') return
+      speaker.current?.cancel()
+      void respond(text)
+    }
+    window.addEventListener('string:ask', onAsk)
+    return () => window.removeEventListener('string:ask', onAsk)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const onPartial = (text: string) => {
     store.getState().setCaption(text)
   }

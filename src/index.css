@@ -2067,3 +2067,36 @@ kbd {
   letter-spacing: 0.03em;
   color: #f4d6dc;
 }
+
+/* -------- type-to-ask box (bottom centre) -------- */
+.askbox {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 8;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  width: min(560px, calc(100vw - 32px));
+  pointer-events: auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+.askbox-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #fff3f5;
+  background: rgba(10, 2, 5, 0.75);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.askbox-input::placeholder { color: color-mix(in srgb, var(--accent) 55%, transparent) }
+.askbox-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 14px -4px var(--accent);
+}
+.askbox-input:disabled { opacity: 0.4 }

@@ -120,3 +120,46 @@ export function ReactorMark() {
     </div>
   )
 }
+
+/**
+ * Type a question instead of saying it. Enter sends; Escape clears and leaves
+ * the box so the keyboard shortcuts work again.
+ */
+export function AskBox() {
+  const phase = useStore((s) => s.phase)
+  const [text, setText] = useState('')
+  const ready = phase !== 'offline' && phase !== 'boot'
+  const send = () => {
+    const q = text.trim()
+    if (!q || !ready) return
+    window.dispatchEvent(new CustomEvent('string:ask', { detail: q }))
+    setText('')
+  }
+  return (
+    <form
+      className="askbox"
+      onSubmit={(e) => {
+        e.preventDefault()
+        send()
+      }}
+    >
+      <input
+        className="askbox-input"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setText('')
+            ;(e.target as HTMLInputElement).blur()
+          }
+        }}
+        placeholder={ready ? 'Type to ask STRING…' : 'Click INITIALISE first'}
+        disabled={!ready}
+        aria-label="Ask STRING"
+      />
+      <button className="tb-btn" type="submit" disabled={!ready || !text.trim()}>
+        ASK
+      </button>
+    </form>
+  )
+}

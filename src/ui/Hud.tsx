@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useStore, accentFor, type Phase } from '../store'
 import { Suggestions } from './Suggestions'
 import { BladeSweep, Blades } from './Blades'
-import { Toolbar, ReactorMark } from './Toolbar'
+import { Toolbar, ReactorMark, AskBox } from './Toolbar'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
@@ -184,6 +184,7 @@ export function Hud() {
       <BladeSweep />
       <ReactorMark />
       <Toolbar />
+      <AskBox />
 
       <Corner at="tl" />
       <Corner at="tr" />
