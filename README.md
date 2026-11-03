@@ -128,7 +128,7 @@ npm --prefix desktop install
 
 This puts **ZEN.app** in Applications. Open it from Launchpad or Spotlight;
 it starts ZEN if it isn't running, and **⌥Space** shows or hides it from
-anywhere. Closing the window hides it; ⌘Q quits. The first time, allow the
+anywhere (⌘H hides it too). The red ✕ quits. The first time, allow the
 microphone.
 
 ---
