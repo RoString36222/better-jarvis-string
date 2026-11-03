@@ -2495,3 +2495,23 @@ kbd {
 
 /* the terminal's resize grip */
 .tw-grip { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 2 }
+
+/* collapsible Up next */
+.np-collapse {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  font-size: 8.5px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.np-collapse:hover { color: #fff }
+.np-chev { font-size: 11px; flex: none }
+.np-collapsed { align-self: end; max-height: none }
+.np-collapsed .np-collapse { margin-bottom: 0 }

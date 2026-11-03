@@ -317,6 +317,22 @@ function Recs({ media }: { media: Media }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const key = `${media.title}|${media.artist}`
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('zen.upnext.collapsed') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggle = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem('zen.upnext.collapsed', c ? '0' : '1')
+      } catch {
+        /* storage blocked */
+      }
+      return !c
+    })
 
   useEffect(() => {
     let alive = true
@@ -384,8 +400,13 @@ function Recs({ media }: { media: Media }) {
 
   if (!recs.length) return null
   return (
-    <div className="np-panel np-recs">
-      <div className="np-panel-head">UP NEXT · LIKE {String(media.artist ?? '').toUpperCase()}</div>
+    <div className={`np-panel np-recs${collapsed ? ' np-collapsed' : ''}`}>
+      <button className="np-panel-head np-collapse" onClick={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show' : 'Hide'}>
+        <span>UP NEXT · LIKE {String(media.artist ?? '').toUpperCase()}</span>
+        <span className="np-chev">{collapsed ? '▸' : '▾'}</span>
+      </button>
+      {!collapsed && (
+      <>
       <div className="np-recs-list">
         {recs.map((r) => (
           <button key={`${r.title}|${r.artist}`} className="np-rec" onClick={() => void play(r)} disabled={busy !== null}>
@@ -414,6 +435,8 @@ function Recs({ media }: { media: Media }) {
         </div>
       )}
       {note && <div className="np-note">{note}</div>}
+      </>
+      )}
     </div>
   )
 }
