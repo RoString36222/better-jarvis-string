@@ -448,14 +448,14 @@ export const useStore = create<State>((set) => ({
 
 /** Colour identity per phase — shared by the 3D scene and the 2D HUD. */
 export const phaseColor: Record<Phase, string> = {
-  offline: '#4a0d14',
-  boot: '#d81b33',
-  dormant: '#a8122a',
-  waking: '#ff5a70',
-  listening: '#ff2d4a',
-  thinking: '#ff7a45',
-  tooling: '#ff3d8a',
-  speaking: '#ff4d6a',
+  offline: '#0b2150',
+  boot: '#1f5fd6',
+  dormant: '#163f96',
+  waking: '#6a9bff',
+  listening: '#2f6bff',
+  thinking: '#7b8cff',
+  tooling: '#36b5ff',
+  speaking: '#4d8dff',
 }
 
 /**

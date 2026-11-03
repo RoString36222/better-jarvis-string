@@ -72,6 +72,13 @@ export function Toolbar() {
       >
         CLEAR VIEW
       </button>
+      <button
+        className="tb-btn"
+        onClick={() => window.dispatchEvent(new CustomEvent('string:brief'))}
+        title="Weather, your day, and anything firing"
+      >
+        BRIEF
+      </button>
       <button className={`tb-btn${cameraOpen ? ' tb-on' : ''}`} onClick={toggleCamera} title="Camera">
         CAMERA
       </button>
@@ -95,28 +102,6 @@ export function Toolbar() {
           </motion.ul>
         )}
       </AnimatePresence>
-    </div>
-  )
-}
-
-/**
- * The wordmark inside the reactor.
- *
- * DOM over the canvas rather than a texture in the scene: the scene is bloomed,
- * and bloom turns thin letterforms to mush. Sized off the reactor's own scale
- * so "make yourself bigger" grows the name with the rings.
- */
-export function ReactorMark() {
-  const reactor = useStore((s) => s.ui.reactor)
-  const blades = useStore((s) => s.blades.length)
-  if (!reactor.visible) return null
-  return (
-    <div
-      className={`reactor-mark${blades ? ' reactor-mark-dim' : ''}`}
-      style={{ ['--rm-scale' as string]: reactor.scale }}
-      aria-hidden
-    >
-      STRING
     </div>
   )
 }
@@ -153,9 +138,9 @@ export function AskBox() {
             ;(e.target as HTMLInputElement).blur()
           }
         }}
-        placeholder={ready ? 'Type to ask STRING…' : 'Click INITIALISE first'}
+        placeholder={ready ? 'Type to ask ZEN…' : 'Click INITIALISE first'}
         disabled={!ready}
-        aria-label="Ask STRING"
+        aria-label="Ask ZEN"
       />
       <button className="tb-btn" type="submit" disabled={!ready || !text.trim()}>
         ASK

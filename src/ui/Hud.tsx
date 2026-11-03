@@ -3,7 +3,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useStore, accentFor, type Phase } from '../store'
 import { Suggestions } from './Suggestions'
 import { BladeSweep, Blades } from './Blades'
-import { Toolbar, ReactorMark, AskBox } from './Toolbar'
+import { Toolbar, AskBox } from './Toolbar'
+import { ArcReactor } from './ArcReactor'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
@@ -11,7 +12,7 @@ import { GestureGuide } from './GestureGuide'
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
   boot: 'INITIALISING',
-  dormant: 'STANDBY — SAY “HEY STRING”',
+  dormant: 'STANDBY — SAY “HEY ZEN”',
   waking: 'ONLINE',
   listening: 'LISTENING',
   thinking: 'PROCESSING',
@@ -147,6 +148,21 @@ function DecodeText({ text }: { text: string }) {
 
 /* --------------------------------------------------------------------- hud */
 
+/**
+ * STRING's own in-process servers carry implementation names (jarvis_ui,
+ * jarvis_eyes); the rail shows what each one is for. Anything else — your own
+ * MCP servers, clickhouse-eda, gcp-grafana — shows as it is named.
+ */
+const SYSTEM_LABELS: Record<string, string> = {
+  jarvis: 'display',
+  jarvis_ui: 'interface',
+  jarvis_chrome: 'browser',
+  jarvis_eyes: 'camera',
+  jarvis_search: 'search · weather',
+  jarvis_memory: 'memory',
+}
+const systemLabel = (name: string) => SYSTEM_LABELS[name] ?? name
+
 export function Hud() {
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
@@ -182,7 +198,7 @@ export function Hud() {
           `z-index: auto`, so paint order is document order and the sweep stays
           behind the transcript and the panels without a z-index war. */}
       <BladeSweep />
-      <ReactorMark />
+      <ArcReactor />
       <Toolbar />
       <AskBox />
 
@@ -194,7 +210,7 @@ export function Hud() {
       <header className="hud-top">
         {ui.chrome.brand && (
           <div className="brand">
-            <span className="brand-mark">S.T.R.I.N.G.</span>
+            <span className="brand-mark">Z.E.N.</span>
             <span className="brand-sub">Personal Research Intelligence</span>
           </div>
         )}
@@ -216,7 +232,7 @@ export function Hud() {
         <aside className="rail rail-left">
           <div className="rail-title">SYSTEMS</div>
           {connected.length === 0 && <div className="rail-item dim">none linked</div>}
-          {connected.map((c) => (
+          {[...new Set(connected.map(systemLabel))].map((c) => (
             <div key={c} className="rail-item">
               <span className="tick" />
               {c}
@@ -257,9 +273,11 @@ export function Hud() {
           >
             <span className="tool-kicker">
               <span className="spinner" />
-              accessing
+              {activeTool.endsWith('…') ? 'working' : 'accessing'}
             </span>
-            <span className="tool-name">{activeTool.replace(/[_-]/g, ' ')}</span>
+            <span className="tool-name">
+              {activeTool.endsWith('…') ? activeTool : activeTool.replace(/[_-]/g, ' ')}
+            </span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -277,7 +295,7 @@ export function Hud() {
                 exit={{ opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 32 }}
               >
-                <span className="log-who">{t.role === 'user' ? 'YOU' : 'STRING'}</span>
+                <span className="log-who">{t.role === 'user' ? 'YOU' : 'ZEN'}</span>
                 {/* Only his half decodes. What the user said was never
                     transmitted from anywhere — dressing it up as machine
                     output would be a lie about where the words came from. */}
@@ -316,7 +334,7 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“hey string”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
+          say <b>“hey zen”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
           {voice && (
             <>
               {' · '}

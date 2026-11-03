@@ -42,7 +42,10 @@ export let lastError = ''
  * closest to a measured RP baritone; Fable is warmer, Lewis lower, Daniel
  * brighter.
  */
-export const VOICES = ['bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel'] as const
+export const VOICES = [
+  'bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel',
+  'af_heart', 'af_bella', 'am_michael', 'am_fenrir', 'bf_emma',
+] as const
 
 /**
  * A voice id the model doesn't carry throws inside generate(), once per

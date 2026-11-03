@@ -36,6 +36,9 @@ export type VadHandlers = {
   onLevel: (v: number) => void
   /** Capture is impossible — no microphone, or no MediaRecorder support. */
   onError: (message: string) => void
+  /** Optional: the audio so far, every PROGRESS_MS while still speaking, so
+   *  the words can be shown live instead of only after the pause. */
+  onProgress?: (audio: Blob) => void
 }
 
 export type Vad = {
@@ -75,9 +78,11 @@ const START_MS = 110
  * should always have been — a cheap "have they stopped making noise" — and the
  * shorter window gets the transcript moving sooner.
  */
-const SILENCE_MS = 650
+const SILENCE_MS = 450
 /** Nobody speaks one segment for this long; cut it and transcribe what we have. */
 const MAX_MS = 20000
+/** How often a still-running segment is handed over for a live transcript. */
+const PROGRESS_MS = 800
 
 /** The floor adapts slowly upward (a fan spinning up) and quickly downward (a
  *  door closing), so it settles to genuine ambient noise without chasing speech. */
@@ -142,6 +147,7 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
   let speaking = false
   let speechStartedAt = 0
   let lastLoud = 0
+  let lastProgress = 0
   let raf = 0
 
   const rms = (): number => {
@@ -161,7 +167,10 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size) parts.push(e.data)
     }
-    recorder.start()
+    // Timesliced so the audio so far is available mid-segment for the live
+    // transcript. Chunks concatenate into one decodable file: the first one
+    // carries the container header.
+    recorder.start(h.onProgress ? 300 : undefined)
   }
 
   const discardRecorder = () => {
@@ -231,6 +240,7 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
           // Confirmed. This is the moment barge-in fires.
           speaking = true
           speechStartedAt = armedAt
+          lastProgress = now
           lastLoud = now
           h.onStart()
         }
@@ -246,6 +256,9 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
       if (quietFor >= SILENCE_MS || runFor >= MAX_MS) {
         armedAt = 0
         endSegment()
+      } else if (h.onProgress && now - lastProgress >= PROGRESS_MS && parts.length) {
+        lastProgress = now
+        h.onProgress(new Blob(parts, { type: recorder?.mimeType || mime || 'audio/webm' }))
       }
     }
   }

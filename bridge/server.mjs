@@ -22,6 +22,7 @@ import { uiServer } from './ui.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { searchServer, searchSource } from './search.mjs'
+import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -119,6 +120,27 @@ const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
  */
 const FAST_MODEL = process.env.JARVIS_FAST_MODEL || null
 
+/**
+ * Proactive mode: every STRING_WATCH_MINUTES while idle, STRING checks on its
+ * own and speaks only if something needs attention. Off at 0. It uses whatever
+ * tools the session has, so it is most useful with JARVIS_MCP=gcp-grafana.
+ */
+const WATCH_MINUTES = Math.max(0, Number(process.env.STRING_WATCH_MINUTES || 0))
+const WATCH_PROMPT =
+  process.env.STRING_WATCH_PROMPT ||
+  '[Automatic check — not from the user. Do not mention this message.] ' +
+    'Using the monitoring tools you have (Grafana alert rules, metrics), check whether ' +
+    'anything is firing or has gone badly wrong in the last few minutes. If something ' +
+    'needs attention, say it in one short sentence, fronted with "Sir," as an alert. ' +
+    'If all is well, or you have no monitoring tools, reply with exactly: NOTHING'
+
+/** Whole-utterance phrases Whisper hallucinates from silence, hum or a tone. */
+const WHISPER_PHANTOMS =
+  /^\W*(bye( bye)?|thank you( (very much|so much))?|thanks( for watching)?|you|okay|so|uh+|um+|hmm+|please subscribe|subtitles by[^.]*|\.+)\W*$/i
+
+/** Local whisper.cpp server for speech-to-text, started by start-kimi.sh. */
+const WHISPER_URL = (process.env.WHISPER_URL || '').replace(/\/+$/, '') || null
+
 const FACE_WORDS =
   /\b(red|blue|green|gold|purple|orange|pink|white|yellow|teal|cyan|colou?r|theme|bigger|smaller|larger|size|spin|rotate|faster|slower|glitch|pulse|hide|show|transcript|reset|default|reactor|orbit)\b/i
 const SMALL_TALK =
@@ -202,7 +224,21 @@ function configuredServers() {
   }
 }
 
-const MCP_SERVERS = configuredServers()
+/**
+ * Which of your Claude Code MCP servers STRING loads. Every server's tool list
+ * is sent to the model on every turn, so a large set (two Grafanas, Notion,
+ * Metabase) is paid for in latency even on "hi". JARVIS_MCP=all (default)
+ * keeps them all, JARVIS_MCP=none drops them, or name the ones to keep:
+ * JARVIS_MCP=gcp-grafana,notion
+ */
+const MCP_SERVERS = (() => {
+  const all = configuredServers()
+  const want = (process.env.JARVIS_MCP ?? 'all').trim().toLowerCase()
+  if (want === 'all' || want === '') return all
+  if (want === 'none') return {}
+  const keep = new Set(want.split(',').map((x) => x.trim()).filter(Boolean))
+  return Object.fromEntries(Object.entries(all).filter(([name]) => keep.has(name.toLowerCase())))
+})()
 
 /** MCP tools arrive as `mcp__<server>__<tool>`. */
 const mcpServerOf = (toolName) =>
@@ -311,6 +347,9 @@ function decideTool(name, input) {
     // Search reads the web and changes nothing.
     if (server === 'jarvis_search') return true
 
+    // Memory writes only to STRING's own file, and only what the user said.
+    if (server === 'jarvis_memory') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -330,7 +369,39 @@ function decideTool(name, input) {
   return ALLOW_WRITES
 }
 
-const SYSTEM_PROMPT = `You are STRING, a personal AI assistant. Your name is STRING; if asked, that is who you are. You are speaking out loud to one person.
+/**
+ * What a tool call is doing, in words for the HUD: "Checking the weather in
+ * Mumbai…" rather than "mcp jarvis search weather". Built from the call's own
+ * arguments, which arrive with the finished tool_use block.
+ */
+function describeTool(name, input = {}) {
+  const tool = name.startsWith('mcp__') ? name.split('__').slice(2).join('__') : name
+  const host = (u) => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, '')
+    } catch {
+      return 'a page'
+    }
+  }
+  const cut = (t, n = 48) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t))
+  if (tool === 'weather') return `Checking the weather in ${input.place || process.env.STRING_HOME_CITY || 'Bengaluru'}…`
+  if (tool === 'web_search' || name === 'WebSearch') return `Searching “${cut(input.query ?? '')}”…`
+  if (name === 'WebFetch') return `Reading ${host(input.url)}…`
+  if (tool === 'remember') return 'Remembering that…'
+  if (tool === 'recall') return 'Checking what I know…'
+  if (tool === 'research_wall') return `Building the ${cut(input.topic ?? 'research', 30)} briefing…`
+  if (tool === 'blade') return `Opening ${cut(input.title ?? input.kind ?? 'a panel', 30)}…`
+  if (tool === 'probe_url') return `Checking ${host(input.url)}…`
+  if (/^alerting/.test(tool)) return 'Checking Grafana alerts…'
+  if (/prometheus/.test(tool)) return /^query/.test(tool) ? 'Querying live metrics…' : 'Finding the right metric…'
+  if (/datasource/.test(tool)) return 'Looking through Grafana…'
+  if (/look|watch|camera/.test(tool)) return 'Looking through the camera…'
+  if (/^chrome/.test(tool)) return 'Working in your browser…'
+  const server = name.startsWith('mcp__') ? name.split('__')[1] : ''
+  return `${server ? `${server.replace(/^jarvis_?/, '') || 'ZEN'}: ` : ''}${tool.replace(/[_-]+/g, ' ')}…`
+}
+
+const SYSTEM_PROMPT = `You are ZEN, a personal AI assistant. Your name is ZEN; if asked, that is who you are. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
 words. Every word is read aloud and the user waits in silence while it plays, so
@@ -393,6 +464,19 @@ The blades — the ONLY surface:
 - Anything visual the user asked for goes here: an image, an article to read, a
   video, a page to study, a screenshot you took, a list, a figure. If they asked
   to see it, open it.
+- SHOW, DON'T ONLY TELL — but in proportion. When the answer is about something
+  people want to see, open ONE thing for it even if they did not ask:
+    a place, person, animal, building, product, artwork or event → one \`image\`
+      (or a \`gallery\` of two to four) from a search result's \`image\` field;
+    a topic, story or explainer worth reading → the single best \`article\`;
+    how something moves, sounds or is done → one \`embed\` video, only if a
+      search gave you a real YouTube or Vimeo URL.
+  The measure is about one blade per substantive answer, never more than two
+  (a research request gets a \`research_wall\` instead). Open nothing for small
+  talk, maths, yes/no answers, a bare fact with nothing to look at, the time,
+  or a follow-up about what is already on screen; weather gets a \`stat\` card.
+  Never assemble or guess a URL — if no search result carried one, show nothing
+  rather than something broken.
 - Blades stack, newest in front, and they can be pulled forward, dragged,
   resized, scrolled or thrown full screen — by hand or by mouse. So a second
   blade does not destroy the first, and a long article is meant to be read in
@@ -694,7 +778,7 @@ function corsFor(req) {
   const headers = { vary: 'origin' }
   if (origin) {
     headers['access-control-allow-origin'] = origin
-    headers['access-control-allow-headers'] = 'content-type'
+    headers['access-control-allow-headers'] = 'content-type, x-partial'
   }
   return headers
 }
@@ -724,7 +808,9 @@ const handleRequest = async (req, res) => {
     // student with nothing configured still has a working assistant.
     const eleven = Boolean(elevenKey())
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven }))
+    // Local Whisper counts for hearing: the VAD + /stt path works in every
+    // browser, including the ones that block SpeechRecognition (Brave, Opera).
+    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven || Boolean(WHISPER_URL) }))
   }
 
   // Serve local image files to the page. Screenshots and generated art land on
@@ -933,9 +1019,9 @@ const handleRequest = async (req, res) => {
   // touches this endpoint; this is only for the words.
   if (req.method === 'POST' && req.url === '/stt') {
     const key = elevenKey()
-    if (!key) {
+    if (!key && !WHISPER_URL) {
       res.writeHead(503, cors)
-      return res.end('no elevenlabs key')
+      return res.end('no elevenlabs key and no local whisper')
     }
 
     const type = req.headers['content-type'] || 'audio/webm'
@@ -962,6 +1048,41 @@ const handleRequest = async (req, res) => {
     if (size < 1200) {
       res.writeHead(200, { ...cors, 'content-type': 'application/json' })
       return res.end(JSON.stringify({ text: '' }))
+    }
+
+    // No ElevenLabs key: transcribe on this machine with whisper.cpp, which
+    // start-kimi.sh runs on 127.0.0.1. --convert there turns webm/ogg/mp4 into
+    // the WAV it needs via ffmpeg.
+    if (!key) {
+      try {
+        const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'mp4' : type.includes('wav') ? 'wav' : 'webm'
+        const form = new FormData()
+        form.append('file', new Blob(chunks, { type }), `speech.${ext}`)
+        form.append('response_format', 'json')
+        form.append('temperature', '0.0')
+        const t0 = Date.now()
+        const r = await fetch(`${WHISPER_URL}/inference`, {
+          method: 'POST',
+          body: form,
+          signal: AbortSignal.timeout(20_000),
+        })
+        if (!r.ok) throw new Error(`whisper answered ${r.status}`)
+        const out = await r.json()
+        // Whisper's tell for silence and noise: bracketed tags, not words.
+        let text = String(out.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim()
+        // Whisper's other tell: on noise it invents a stock phrase from its
+        // training data (YouTube outros). Alone, these are never a request.
+        if (WHISPER_PHANTOMS.test(text)) text = ''
+        if (!req.headers['x-partial']) {
+          console.log(`[jarvis] stt whisper ${Date.now() - t0}ms "${text.slice(0, 60)}"`)
+        }
+        res.writeHead(200, { ...cors, 'content-type': 'application/json' })
+        return res.end(JSON.stringify({ text }))
+      } catch (err) {
+        console.error('[jarvis] whisper failed:', err?.message ?? err)
+        res.writeHead(502, cors)
+        return res.end('transcription failed')
+      }
     }
 
     try {
@@ -1045,7 +1166,9 @@ console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
-console.log(`[jarvis] web search via ${searchSource()}`)
+console.log(`[jarvis] web search via ${searchSource()} · ${memoryCount()} saved memories`)
+if (WATCH_MINUTES) console.log(`[jarvis] proactive check every ${WATCH_MINUTES} min`)
+console.log(`[jarvis] hearing via ${elevenKey() ? 'ElevenLabs Scribe' : WHISPER_URL ? `local Whisper (${WHISPER_URL})` : 'browser speech recognition'}`)
 if (FAST_MODEL) console.log(`[jarvis] fast model ${FAST_MODEL} for face commands and small talk`)
 console.log(
   `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
@@ -1126,7 +1249,22 @@ wss.on('connection', (socket) => {
    * listener over there has already heard.
    */
   let answering = null
-  const sendTurn = (msg) => send({ ...msg, ask: answering })
+  /**
+   * Proactive watch turns (STRING_WATCH_MINUTES) run in the same session but
+   * are not the user's: nothing streams to the screen. Their words are
+   * collected and only surfaced, as a 'notify', if there is something to say.
+   */
+  let watchTurn = false
+  let watchText = ''
+  /** A turn is in flight — the watcher never interrupts or queues behind one. */
+  let inTurn = false
+  const sendTurn = (msg) => {
+    if (watchTurn) {
+      if (msg.type === 'text') watchText += msg.delta ?? ''
+      return
+    }
+    send({ ...msg, ask: answering })
+  }
 
   /**
    * Asking the browser for something and waiting for the answer.
@@ -1258,12 +1396,14 @@ wss.on('connection', (socket) => {
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
         jarvis_search: searchServer(),
+        jarvis_memory: memoryServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
-      systemPrompt: SYSTEM_PROMPT,
+      // Read per session, so a fact saved last time is known from the first word.
+      systemPrompt: SYSTEM_PROMPT + memoryPrompt(),
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),
@@ -1318,7 +1458,7 @@ wss.on('connection', (socket) => {
               // Every word of this can end up spoken, so it carries no command
               // to read out — the persona is forbidden from saying one aloud.
               message:
-                'Blocked: STRING is running in read-only mode and cannot take' +
+                'Blocked: ZEN is running in read-only mode and cannot take' +
                 ' actions that change anything. Tell the user this action is' +
                 ' unavailable until they enable write access on the machine.',
             }
@@ -1364,6 +1504,11 @@ wss.on('connection', (socket) => {
             for (const block of msg.content ?? msg.message?.content ?? []) {
               if (block.type === 'tool_use') {
                 announceTool(block.id, block.name)
+                // The finished block carries the arguments, so this is where
+                // the badge can say what is actually happening.
+                if (block.name !== 'mcp__jarvis__display' && !block.name.startsWith('mcp__jarvis_ui__')) {
+                  sendTurn({ type: 'status', text: describeTool(block.name, block.input ?? {}) })
+                }
               }
             }
             break
@@ -1407,6 +1552,19 @@ wss.on('connection', (socket) => {
             }
             // Whatever was waiting on this turn to finish can go now. This is
             // the only place a turn is genuinely over.
+            if (watchTurn) {
+              watchTurn = false
+              const said = watchText.trim()
+              watchText = ''
+              // The check is told to answer NOTHING when all is well.
+              if (msg.subtype === 'success' && said && !/^\W*nothing\b/i.test(said)) {
+                console.log(`[jarvis] watch: ${said.slice(0, 80)}`)
+                send({ type: 'notify', text: said })
+              } else {
+                console.log(`[jarvis] watch: all clear (${msg.subtype})`)
+              }
+            }
+            inTurn = false
             finishTurn?.()
             finishTurn = null
             // One turn's tool ids are never referred to again, and these
@@ -1466,6 +1624,7 @@ wss.on('connection', (socket) => {
        */
       const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
+      inTurn = true
       void settling.then(async () => {
         const target = routeModel(text)
         if (target !== currentModel) {
@@ -1510,8 +1669,27 @@ wss.on('connection', (socket) => {
     }
   })
 
+  const watchTimer =
+    WATCH_MINUTES > 0
+      ? setInterval(() => {
+          if (inTurn || closed || watchTurn) return
+          watchTurn = true
+          watchText = ''
+          inTurn = true
+          answering = null
+          if (deliver) {
+            const resolve = deliver
+            deliver = null
+            resolve(WATCH_PROMPT)
+          } else {
+            inbox.push(WATCH_PROMPT)
+          }
+        }, WATCH_MINUTES * 60_000)
+      : null
+
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
+    if (watchTimer) clearInterval(watchTimer)
     closed = true
     deliver?.(null)
     session.close?.()

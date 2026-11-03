@@ -56,6 +56,11 @@ export function watchBlades(fn: (blade: Blade) => void): void {
   if (usingBridge) bridge.watchBlades(fn)
 }
 
+/** Proactive alerts from the bridge. Bridge only: the browser path has no watcher. */
+export function watchNotify(fn: (text: string) => void): void {
+  if (usingBridge) bridge.watchNotify(fn)
+}
+
 /**
  * Redressing the interface — theme, reactor, orbiting objects, effects — is a
  * bridge capability, like panels. The `ui_*` tools live in an in-process MCP

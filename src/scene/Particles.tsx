@@ -97,7 +97,7 @@ export function Particles({ drive }: { drive: Drive }) {
       uTime: { value: 0 },
       uLevel: { value: 0 },
       uSize: { value: 3.4 },
-      uColor: { value: new THREE.Color('#ff2d4a') },
+      uColor: { value: new THREE.Color('#2f6bff') },
       uIntensity: { value: 1 },
     }),
     [],

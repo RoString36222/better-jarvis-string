@@ -124,7 +124,13 @@ export const TTS_ENGINE: 'kokoro' | 'system' = choice(
 export const KOKORO_VOICE = choice(
   'VITE_KOKORO_VOICE',
   import.meta.env.VITE_KOKORO_VOICE,
-  ['bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel'] as const,
+  [
+    'bm_george', 'bm_fable', 'bm_lewis', 'bm_daniel',
+    // Kokoro's highest-rated voices, for anyone who wants STRING to sound
+    // less like a butler: af_heart and af_bella (US female, the two best),
+    // am_michael and am_fenrir (US male), bf_emma (UK female).
+    'af_heart', 'af_bella', 'am_michael', 'am_fenrir', 'bf_emma',
+  ] as const,
   'bm_george',
 )
 
@@ -276,7 +282,7 @@ export const activeServers = () => MCP_SERVERS.filter((s) => s.enabled && s.url)
  * fuller version in bridge/server.mjs — that's the one that gets used by
  * default, and the one worth editing.
  */
-export const SYSTEM_PROMPT = `You are STRING, a personal AI assistant. You are speaking out loud.
+export const SYSTEM_PROMPT = `You are ZEN, a personal AI assistant. You are speaking out loud.
 
 THE HARD RULE: your entire reply must be under 60 words. This is not a style
 preference — every word is read aloud by a speech synthesiser and the user is

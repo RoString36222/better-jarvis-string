@@ -73,7 +73,7 @@ export function Pointer() {
     const accentOf = () => {
       const hud = document.querySelector('.hud') as HTMLElement | null
       const c = hud && getComputedStyle(hud).getPropertyValue('--accent').trim()
-      return c || '#e0203c'
+      return c || '#1f5fe0'
     }
 
     const draw = () => {

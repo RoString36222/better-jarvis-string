@@ -19,6 +19,8 @@ export type AskHandlers = {
   onText: (delta: string) => void
   /** Fires when Claude starts running a remote tool. */
   onTool: (name: string) => void
+  /** A plain-words description of the work in progress, for the badge. */
+  onStatus?: (text: string) => void
 }
 
 /** The stream for the turn in flight, so a barge-in can abort it. Without this

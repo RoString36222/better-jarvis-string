@@ -52,7 +52,7 @@ export function Suggestions() {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.35 }}
         >
-          “hey string, {EXAMPLES[i]}”
+          “hey zen, {EXAMPLES[i]}”
         </motion.span>
       </AnimatePresence>
     </div>

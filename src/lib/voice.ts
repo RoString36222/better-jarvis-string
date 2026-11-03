@@ -78,7 +78,7 @@ const WAKE_DEBOUNCE = 1500
  * indication why. Better a rare false wake than a name that does not answer.
  */
 const WAKE =
-  /\b(?:hey|hi|ok|okay|yo)?\s*(?:string|strings|sting|strung|stringy|jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
+  /\b(?:hey|hi|ok|okay|yo)?\s*(?:zen|zenn|xen|zan|string|strings|sting|strung|stringy|jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
 
 /** Everything after the wake phrase, which is usually the actual command. */
 function afterWake(text: string): string {
@@ -152,7 +152,7 @@ const SELF_GUARD_MS = 350
  * more clause. Making it generous here is what would make every ordinary
  * question feel slow.
  */
-const SETTLE_MS = 250
+const SETTLE_MS = 120
 /** ...and this long when the sentence is plainly unfinished. */
 const CONTINUE_MS = 1600
 /**
@@ -267,7 +267,7 @@ const norm = (s: string) =>
  * would be the single most infuriating failure this file could have.
  */
 const OVERRIDE =
-  /\b(stop|wait|string|jarvis|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no)\b/i
+  /\b(stop|wait|zen|string|jarvis|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no)\b/i
 
 /**
  * Words too common to be evidence of anything.
@@ -517,6 +517,12 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
     }
   }
 
+  /** The live transcript of the segment still being spoken, if any. */
+  let live = ''
+  let liveBusy = false
+  /** Bumped when a segment ends, so a late partial cannot overwrite the final. */
+  let liveSeq = 0
+
   vad = await startVad({
     onStart: () => {
       const mode = h.mode()
@@ -539,8 +545,38 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       }
     },
     onEnd: (blob) => {
+      live = ''
+      liveSeq++
       pendingAudio.push(blob)
       void drain()
+    },
+    onProgress: (blob) => {
+      // Live words while you are still talking. One request at a time; a slow
+      // one is simply skipped over by the next. Dormant, nothing is shown
+      // until the words contain the wake phrase, so room chatter never
+      // appears on screen.
+      const mode = h.mode()
+      if (mode !== 'command' && mode !== 'wake') return
+      if (liveBusy || assemble.held()) return
+      liveBusy = true
+      const seq = liveSeq
+      fetch(`${BRIDGE_HTTP_URL}/stt`, {
+        method: 'POST',
+        headers: { 'content-type': blob.type || 'audio/webm', 'x-partial': '1' },
+        body: blob,
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((out: { text?: string } | null) => {
+          const text = (out?.text ?? '').trim()
+          if (!text || seq !== liveSeq) return
+          if (h.mode() === 'wake' && !WAKE.test(text)) return
+          live = text
+          h.onPartial(text)
+        })
+        .catch(() => {})
+        .finally(() => {
+          liveBusy = false
+        })
     },
     onLevel: (v) => {
       // Only paint the live level while actually listening for a command, so a
@@ -550,7 +586,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       // Never over the assembled text. This used to run unconditionally and
       // overwrote a half-built sentence with an ellipsis sixty times a second,
       // so a pause looked like the interface had forgotten what you just said.
-      if (assemble.held()) return
+      if (assemble.held() || live) return
       h.onPartial(v > 0.04 ? '…' : '')
     },
     onError: (message) => {

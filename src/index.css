@@ -1,11 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600&family=JetBrains+Mono:wght@300;400&family=Permanent+Marker&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600&family=JetBrains+Mono:wght@300;400&display=swap');
 
 :root {
   /* The interface cyan. `--accent` is re-declared per phase and per panel;
      this one stays put and is what anything neutral pins itself to. */
-  --interface: #ff2d4a;
+  --interface: #2f6bff;
   --accent: var(--interface);
-  --bg: #0a0205;
+  --bg: #020612;
   font-family: 'Chakra Petch', system-ui, sans-serif;
   color-scheme: dark;
 }
@@ -34,8 +34,8 @@ body::after {
     radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.55) 100%),
     repeating-linear-gradient(
       0deg,
-      rgba(255, 45, 74, 0.028) 0px,
-      rgba(255, 45, 74, 0.028) 1px,
+      rgba(47, 107, 255, 0.028) 0px,
+      rgba(47, 107, 255, 0.028) 1px,
       transparent 1px,
       transparent 3px
     );
@@ -722,7 +722,7 @@ kbd {
   font-size: 12px;
   line-height: 1.55;
   opacity: 0.8;
-  color: #ffe3e8;
+  color: #e3edff;
 }
 
 .hud-grid {
@@ -803,19 +803,19 @@ kbd {
   z-index: 7;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at center, #1a050a 0%, #0a0205 70%);
+  background: radial-gradient(ellipse at center, #061230 0%, #020612 70%);
   border: 0;
   cursor: pointer;
   font-family: inherit;
-  color: #ff5a70;
+  color: #6a9bff;
 }
 
 .ignition-ring {
   position: absolute;
   width: 240px;
   height: 240px;
-  border: 1px solid rgba(255, 90, 112, 0.28);
-  border-top-color: rgba(255, 90, 112, 0.9);
+  border: 1px solid rgba(106, 155, 255, 0.28);
+  border-top-color: rgba(106, 155, 255, 0.9);
   border-radius: 50%;
 }
 
@@ -830,7 +830,7 @@ kbd {
   font-size: 15px;
   letter-spacing: 0.52em;
   text-indent: 0.52em; /* balance the trailing letter-space */
-  text-shadow: 0 0 30px rgba(255, 90, 112, 0.7);
+  text-shadow: 0 0 30px rgba(106, 155, 255, 0.7);
 }
 
 .ignition-sub {
@@ -841,7 +841,7 @@ kbd {
 }
 
 .ignition:hover .ignition-word {
-  text-shadow: 0 0 44px rgba(255, 90, 112, 1);
+  text-shadow: 0 0 44px rgba(106, 155, 255, 1);
 }
 
 /* ------------------------------------------------------------------- boot */
@@ -1431,7 +1431,7 @@ kbd {
 }
 
 .fx-glitch::before { background: rgba(255, 40, 90, 0.13) }
-.fx-glitch::after  { background: rgba(255, 60, 90, 0.13); animation-direction: reverse }
+.fx-glitch::after  { background: rgba(60, 120, 255, 0.13); animation-direction: reverse }
 
 @keyframes fxChroma {
   0%, 100% { transform: translateX(0);    opacity: 0 }
@@ -1496,7 +1496,7 @@ kbd {
   overflow-y: auto;
   padding: 0.75rem 0.9rem;
   background: rgba(2, 10, 12, 0.94);
-  border: 1px solid var(--accent, #ff2d4a);
+  border: 1px solid var(--accent, #2f6bff);
   border-radius: 2px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.72rem;
@@ -1508,7 +1508,7 @@ kbd {
 
 .diag-head {
   letter-spacing: 0.18em;
-  color: var(--accent, #ff2d4a);
+  color: var(--accent, #2f6bff);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   padding-bottom: 0.4rem;
   margin-bottom: 0.5rem;
@@ -1918,15 +1918,15 @@ kbd {
   font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, rgba(10, 2, 5, 0.7));
+  background: color-mix(in srgb, var(--accent) 6%, rgba(2, 6, 18, 0.7));
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 .tb-btn:hover:not(:disabled),
 .tb-on {
-  color: #fff4f6;
-  background: color-mix(in srgb, var(--accent) 28%, rgba(10, 2, 5, 0.8));
+  color: #f4f8ff;
+  background: color-mix(in srgb, var(--accent) 28%, rgba(2, 6, 18, 0.8));
   box-shadow: 0 0 14px -4px var(--accent);
 }
 .tb-btn:disabled { opacity: 0.35; cursor: default }
@@ -1940,7 +1940,7 @@ kbd {
   margin: 0;
   padding: 4px;
   list-style: none;
-  background: rgba(10, 2, 5, 0.94);
+  background: rgba(2, 6, 18, 0.94);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   backdrop-filter: blur(10px);
 }
@@ -1952,7 +1952,7 @@ kbd {
   padding: 6px 8px;
   font: inherit;
   font-size: 11px;
-  color: #ffe6ea;
+  color: #e6efff;
   background: none;
   border: 0;
   text-align: left;
@@ -1960,27 +1960,6 @@ kbd {
 }
 .tb-history button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent) }
 .tbh-kind { color: var(--accent); opacity: 0.7; font-size: 9px }
-
-/* -------- the wordmark inside the reactor -------- */
-.reactor-mark {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  z-index: 3;
-  transform: translate(-50%, -50%) rotate(-6deg);
-  font-family: 'Permanent Marker', 'Chakra Petch', cursive;
-  font-size: calc(min(9vmin, 92px) * var(--rm-scale, 1));
-  letter-spacing: 0.02em;
-  color: #fff3f5;
-  text-shadow:
-    0 0 6px rgba(255, 255, 255, 0.55),
-    0 0 18px var(--accent),
-    0 0 42px color-mix(in srgb, var(--accent) 70%, transparent);
-  pointer-events: none;
-  user-select: none;
-  transition: opacity 400ms ease, font-size 500ms ease;
-}
-.reactor-mark-dim { opacity: 0.18 }
 
 /* -------- the research wall: every blade tiled at once -------- */
 .blades-wall {
@@ -2032,8 +2011,8 @@ kbd {
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent));
 }
 .ch-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round }
-.ch-dot { fill: #fff3f5; stroke: var(--accent); stroke-width: 2 }
-.ch-val { fill: #fff3f5; font: 600 15px 'JetBrains Mono', monospace }
+.ch-dot { fill: #f0f6ff; stroke: var(--accent); stroke-width: 2 }
+.ch-val { fill: #f0f6ff; font: 600 15px 'JetBrains Mono', monospace }
 .ch-lab { fill: color-mix(in srgb, var(--accent) 70%, #ffffff); font: 400 13px 'JetBrains Mono', monospace }
 .ch-cap {
   margin: 6px 0 0;
@@ -2041,7 +2020,7 @@ kbd {
   line-height: 1.45;
   letter-spacing: 0.04em;
   text-transform: none;
-  color: #f4d6dc;
+  color: #d6e3f7;
 }
 
 /* -------- the big-number card -------- */
@@ -2055,7 +2034,7 @@ kbd {
 }
 .st-value {
   font: 600 clamp(36px, 6vw, 64px) / 1 'Chakra Petch', sans-serif;
-  color: #fff3f5;
+  color: #f0f6ff;
   text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 .st-label { font-size: 11px; letter-spacing: 0.18em; color: var(--accent) }
@@ -2065,7 +2044,7 @@ kbd {
   line-height: 1.5;
   text-transform: none;
   letter-spacing: 0.03em;
-  color: #f4d6dc;
+  color: #d6e3f7;
 }
 
 /* -------- type-to-ask box (bottom centre) -------- */
@@ -2088,8 +2067,8 @@ kbd {
   font: inherit;
   font-size: 12px;
   letter-spacing: 0.04em;
-  color: #fff3f5;
-  background: rgba(10, 2, 5, 0.75);
+  color: #f0f6ff;
+  background: rgba(2, 6, 18, 0.75);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
@@ -2100,3 +2079,126 @@ kbd {
   box-shadow: 0 0 14px -4px var(--accent);
 }
 .askbox-input:disabled { opacity: 0.4 }
+
+/* -------- the arc reactor (centre) -------- */
+@property --rx { syntax: '<angle>'; inherits: false; initial-value: 0deg }
+@property --ry { syntax: '<angle>'; inherits: false; initial-value: 0deg }
+@property --sp { syntax: '<number>'; inherits: false; initial-value: 1 }
+@property --rz { syntax: '<angle>'; inherits: false; initial-value: 0deg }
+@property --tz { syntax: '<length>'; inherits: false; initial-value: 0px }
+
+.arc {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  width: calc(min(60vmin, 580px) * var(--arc-scale, 1));
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  perspective: 1100px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 600ms ease, width 600ms ease;
+  --arc-a: var(--arc-accent, #2f6bff);
+  /* px in the layer table are authored for a 580px reactor */
+  --arc-k: calc(min(60vmin, 580px) * var(--arc-scale, 1) / 580px);
+  filter: drop-shadow(0 0 calc(10px * var(--arc-glow, 1)) color-mix(in srgb, var(--arc-a) 45%, transparent));
+}
+.arc-dim { opacity: 0.16 }
+.arc svg { width: 100%; height: 100%; overflow: visible; display: block }
+
+.arc-frame { position: absolute; inset: 0 }
+.arc-frame line { stroke: color-mix(in srgb, var(--arc-a) 70%, #fff); stroke-width: 2.5; stroke-linecap: square }
+
+.arc-layer {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  /* One function list for every mode, so moving between them interpolates
+     instead of snapping: rz/ry swing the ring, tz slides it along its axis. */
+  transform: rotateZ(var(--rz)) rotateX(var(--rx)) rotateY(var(--ry)) translateZ(var(--tz)) scale(var(--sp));
+  transition:
+    --rz 1100ms cubic-bezier(0.22, 1, 0.36, 1),
+    --tz 1200ms cubic-bezier(0.22, 1, 0.36, 1),
+    --rx 1100ms cubic-bezier(0.22, 1, 0.36, 1),
+    --ry 1100ms cubic-bezier(0.22, 1, 0.36, 1),
+    --sp 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 700ms ease;
+}
+.arc-ticks svg { transform: rotate(var(--a-ticks, 0deg)) }
+.arc-dots svg { transform: rotate(var(--a-dots, 0deg)) }
+.arc-segments svg { transform: rotate(var(--a-segments, 0deg)) }
+.arc-inner svg { transform: rotate(var(--a-inner, 0deg)) }
+
+/* collapsed: everything draws in toward the main band */
+.arc-collapsed .arc-layer { opacity: 0.55 }
+.arc-collapsed .arc-ticks { --sp: 0.74 }
+.arc-collapsed .arc-dots { --sp: 0.8 }
+.arc-collapsed .arc-segments { --sp: 0.88 }
+.arc-collapsed .arc-band { --sp: 0.94; opacity: 0.85 }
+.arc-collapsed .arc-inner { --sp: 1.22 }
+.arc-collapsed .arc-cross { --sp: 0.7 }
+
+/* expanded and open: rings spread to their full radii */
+.arc-expanded .arc-ticks, .arc-open .arc-ticks { --sp: 1.04 }
+.arc-expanded .arc-inner, .arc-open .arc-inner { --sp: 0.97 }
+
+/* gyroscope: each ring onto its own axis */
+.arc-gyro .arc-layer { --rx: var(--tx); --ry: var(--ty) }
+.arc-gyro .arc-band { --sp: 0.9 }
+.arc-gyro .arc-cross { --sp: 0.6; opacity: 0.6 }
+
+/* spindle: every ring edge-on to the same axis, threaded out along it */
+.arc-spindle .arc-layer { --rz: -22deg; --ry: 68deg; --tz: var(--along) }
+.arc-spindle .arc-ticks { opacity: 0.55; --sp: 0.9 }
+.arc-spindle .arc-cross { --sp: 0.55; opacity: 0.7 }
+.arc-spindle .arc-frame { opacity: 0 }
+.arc-frame { transition: opacity 600ms ease }
+
+.arc-axis {
+  position: absolute;
+  left: -18%;
+  right: -18%;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  transform: rotate(-22deg) scaleX(0.2);
+  background: linear-gradient(90deg, transparent, var(--arc-a) 30%, #f0f6ff 50%, var(--arc-a) 70%, transparent);
+  box-shadow: 0 0 10px var(--arc-a);
+  opacity: 0;
+  transition: opacity 600ms ease, transform 1100ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.arc-spindle .arc-axis { opacity: 0.9; transform: rotate(-22deg) scaleX(1) }
+
+/* speaking: the band breathes with the voice */
+.arc-open .arc-band { --sp: calc(1 + var(--lvl, 0) * 0.07) }
+.arc-open .ring-band { stroke-width: calc(9px + var(--lvl, 0) * 6px) }
+
+.arc .tk { stroke: color-mix(in srgb, var(--arc-a) 55%, transparent); stroke-width: 1.2 }
+.arc .tk-long { stroke: color-mix(in srgb, var(--arc-a) 40%, #fff); stroke-width: 2 }
+.arc .ring-hair { fill: none; stroke: color-mix(in srgb, var(--arc-a) 35%, transparent); stroke-width: 1 }
+.arc .ring-dots {
+  fill: none;
+  stroke: color-mix(in srgb, var(--arc-a) 50%, #fff);
+  stroke-width: 2.4;
+  stroke-dasharray: 0.1 9;
+  stroke-linecap: round;
+}
+.arc .ring-seg {
+  fill: none;
+  stroke: color-mix(in srgb, var(--arc-a) 30%, #fff);
+  stroke-width: 3.5;
+  stroke-dasharray: 17 4 7 4 26 5 11 3 19 4;
+}
+.arc .ring-seg-thin { fill: none; stroke: color-mix(in srgb, var(--arc-a) 60%, transparent); stroke-width: 1; stroke-dasharray: 1 2 }
+.arc .ring-band { fill: none; stroke: var(--arc-a); stroke-width: 9; transition: stroke 600ms ease }
+.arc .ring-band-core { fill: none; stroke: color-mix(in srgb, var(--arc-a) 25%, #fff); stroke-width: 1.6 }
+.arc .ring-inner { fill: none; stroke: color-mix(in srgb, var(--arc-a) 25%, #fff); stroke-width: 2.4; stroke-dasharray: 28 9 6 22 14 21 }
+.arc .ring-inner-thin { fill: none; stroke: color-mix(in srgb, var(--arc-a) 55%, transparent); stroke-width: 1; stroke-dasharray: 55 45 }
+.arc .cross { stroke: color-mix(in srgb, var(--arc-a) 50%, #fff); stroke-width: 1.4 }
+.arc .ring-core { fill: none; stroke: var(--arc-a); stroke-width: 1.5 }
+.arc .core-dot { fill: #f0f6ff }
+
+@media (prefers-reduced-motion: reduce) {
+  .arc-layer { transition: none }
+}

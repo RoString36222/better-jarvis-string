@@ -28,3 +28,6 @@ public/mediapipe/
 
 # Org gateway credentials for start-kimi.sh
 .kimi.env
+
+# Local speech-to-text model weights (downloaded, large)
+models/

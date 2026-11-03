@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
-import { Boot } from './ui/Boot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
@@ -22,6 +21,7 @@ import {
   watchServers,
   watchPanels,
   watchBlades,
+  watchNotify,
   watchCapture,
   watchUi,
   watchConnection,
@@ -55,6 +55,11 @@ const AWAIT_SPEECH_MS = 14000
  *  again to continue a thought. */
 const FOLLOW_UP_MS = 11000
 
+/** What the BRIEF button and the morning briefing ask. */
+const BRIEFING_PROMPT =
+  'Give me my briefing: today\'s weather, anything you remember I have on today, ' +
+  'and, if you have monitoring tools, whether anything is firing. Three short sentences at most.'
+
 /** crypto.randomUUID needs a secure context, which a LAN address over plain
  *  http is not. Not worth failing a whole turn over an id. */
 const newId = () =>
@@ -63,7 +68,7 @@ const newId = () =>
 
 /** The same mishearings voice.ts accepts for the wake word — otherwise a turn
  *  that woke him as "travis" gets that word sent on to the model as a question. */
-const NAME = '(?:string|strings|sting|strung|stringy|jarvis|jarvys|jervis|travis|jarviss|java\'s|jarv)'
+const NAME = '(?:zen|zenn|xen|zan|string|strings|sting|strung|stringy|jarvis|jarvys|jervis|travis|jarviss|java\'s|jarv)'
 /** A bare vocative — "Jarvis", "hey jarvis" — with nothing asked. */
 const BARE_NAME = new RegExp(`^(?:hey|hi|ok|okay|yo)?\\s*${NAME}[\\s,.!?]*$`, 'i')
 /** A leading vocative on a real command: "Jarvis, what's the weather". */
@@ -161,6 +166,9 @@ export default function App() {
           }
           store.getState().appendToLastTurn(delta)
           spk.push(delta)
+        },
+        onStatus: (text) => {
+          if (!stale()) store.getState().setActiveTool(text)
         },
         onTool: (name) => {
           if (stale()) return
@@ -321,8 +329,17 @@ export default function App() {
       speaker.current?.cancel()
       void respond(text)
     }
+    const onBrief = () => {
+      const phase = store.getState().phase
+      if (phase === 'offline' || phase === 'boot') return
+      void respond(BRIEFING_PROMPT)
+    }
     window.addEventListener('string:ask', onAsk)
-    return () => window.removeEventListener('string:ask', onAsk)
+    window.addEventListener('string:brief', onBrief)
+    return () => {
+      window.removeEventListener('string:ask', onAsk)
+      window.removeEventListener('string:brief', onBrief)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -369,12 +386,13 @@ export default function App() {
 
     // Must happen inside the click handler — browsers won't start an
     // AudioContext or speech synthesis without a user gesture.
-    await sfx.unlockAudio()
-    sfx.play('boot')
+    // Not awaited: without a click yet, browsers leave resume() pending until
+    // the first gesture, and awaiting it held the whole power-up at the
+    // INITIALISE screen. Sound simply starts on the first click or key.
+    void sfx.unlockAudio()
     // The score. Must be started from inside this click handler for the same
     // reason as the rest of the audio.
     music.enable()
-    music.playBoot()
     music.startAmbient()
 
     s.setPhase('boot')
@@ -382,6 +400,17 @@ export default function App() {
     watchServers((servers) => store.getState().setConnected(servers))
     watchPanels((panel) => store.getState().pushPanel(panel))
     watchBlades((blade) => store.getState().pushBlade(blade))
+    // Proactive alerts: spoken only while nothing else is going on, so an
+    // alert never talks over an answer. A missed one stays in the transcript.
+    watchNotify((text) => {
+      const st = store.getState()
+      st.pushTurn({ id: newId(), role: 'jarvis', text })
+      if (st.phase !== 'dormant' && st.phase !== 'listening') return
+      sfx.play('wake')
+      const spk = createSpeaker()
+      spk.push(text)
+      void spk.end()
+    })
 
     /**
      * JARVIS asking to see something.
@@ -509,7 +538,6 @@ export default function App() {
     // status bar, rings, suit schematic, reactor power-up — before the live
     // interface takes over. Kept a touch under the boot cue so the music is
     // still rising as the reactor lands.
-    await new Promise((r) => setTimeout(r, 9200)) // boot sequence
     await warming
     store.getState().setConnected(connectedLabels())
     store.getState().setVoice(currentVoiceName())
@@ -543,6 +571,17 @@ export default function App() {
     })
 
     store.getState().setPhase('dormant')
+    // The first visit of the morning opens with a briefing. Once a day, and
+    // only before noon; the BRIEF button asks for one any time.
+    try {
+      const today = new Date().toDateString()
+      if (new Date().getHours() < 12 && localStorage.getItem('string.briefed') !== today) {
+        localStorage.setItem('string.briefed', today)
+        setTimeout(() => window.dispatchEvent(new CustomEvent('string:brief')), 1500)
+      }
+    } catch {
+      /* storage blocked: no automatic briefing */
+    }
   }
 
   // -- clap to start --------------------------------------------------------
@@ -559,6 +598,35 @@ export default function App() {
    * been granted yet, the button is still right there; announcing an error
    * about a feature nobody asked for would be worse than quietly doing without.
    */
+  /**
+   * Power up on load: no INITIALISE click, no boot sequence.
+   *
+   * Browsers hold sound until the page has had a click or a key press, so the
+   * first one anywhere unlocks it — including the speech engine, which Safari
+   * only lets speak after an utterance made inside a gesture. The INITIALISE
+   * button stays as the fallback if this power-up fails.
+   */
+  useEffect(() => {
+    void powerOn()
+    const unlock = () => {
+      void sfx.unlockAudio()
+      try {
+        window.speechSynthesis?.speak(new SpeechSynthesisUtterance(''))
+      } catch {
+        /* no speech engine — the bridge voice covers it */
+      }
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (phase !== 'offline') return
     let live: { stop: () => void } | null = null
@@ -717,7 +785,6 @@ export default function App() {
     <>
       <Scene />
       <Hud />
-      <Boot />
       <Diagnostics />
       <Ignition onStart={() => void powerOn()} />
     </>

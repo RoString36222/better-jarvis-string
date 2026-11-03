@@ -9,7 +9,6 @@ import {
 } from '@react-three/postprocessing'
 import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
-import { Core } from './Core'
 import { Particles } from './Particles'
 import { Orbits } from './Orbits'
 import { useStore, phaseColor, accentFor, type Phase } from '../store'
@@ -185,7 +184,7 @@ function Rig() {
   // subject is one unbroken one.
   return (
     <>
-      <Core drive={drive} />
+      {/* The shader disc is replaced by the SVG arc reactor (ui/ArcReactor). */}
       <Particles drive={drive} />
       <Orbits />
     </>

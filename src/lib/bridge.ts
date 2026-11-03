@@ -90,6 +90,12 @@ export function watchBlades(fn: (blade: Blade) => void) {
   onBlade = fn
 }
 
+/** Something STRING noticed on its own (proactive mode), to be said aloud. */
+let onNotify: ((text: string) => void) | null = null
+export function watchNotify(fn: (text: string) => void) {
+  onNotify = fn
+}
+
 /** Commands that redress the interface — theme, reactor, orbits, effects. Same
  *  out-of-band route as panels: JARVIS issues them while he is still mid-answer
  *  so the change is on screen as he says it, which means they cannot ride back
@@ -181,6 +187,8 @@ function dispatch(ws: WebSocket) {
       onPanel?.(msg.panel)
     } else if (msg.type === 'blade' && msg.blade) {
       onBlade?.(msg.blade)
+    } else if (msg.type === 'notify' && msg.text) {
+      onNotify?.(msg.text)
     } else if (msg.type === 'capture' && msg.id) {
       const id = msg.id
       const reply = (payload: Record<string, unknown>) => {
@@ -438,6 +446,10 @@ export async function ask(
             if (!msg.name) break
             tools.push(msg.name)
             handlers.onTool(prettyToolName(msg.name))
+            break
+
+          case 'status':
+            if (msg.text) handlers.onStatus?.(msg.text)
             break
 
           case 'done':

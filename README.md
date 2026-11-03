@@ -1,32 +1,46 @@
-# Better JARVIS (S.T.R.I.N.G.)
+# Better JARVIS (Z.E.N.)
 
-A red, research-focused fork of [adewaskar/jarvis](https://github.com/adewaskar/jarvis)
+A sapphire, research-focused fork of [adewaskar/jarvis](https://github.com/adewaskar/jarvis)
 (MIT, by Aditya Dewaskar) that runs on any Anthropic-compatible model gateway.
+Say **"Hey Zen"**, or type in the box at the bottom.
 
 **What this fork adds**
 
-- **Research wall** — "Hey String, research X" tiles a grid of stat cards, native
-  bar/line charts, findings, images and sources (one `research_wall` tool call).
-- **Toolbar** — HISTORY, TIDY (grid ↔ stack), CLEAR VIEW, CAMERA.
-- **Native `chart` and `stat` blades**, so the model sends numbers, not markup.
-- **`web_search` tool** (`bridge/search.mjs`) — Serper or Brave Search with a key,
-  Wikipedia without one. Claude Code's built-in WebSearch is disabled because it
-  does not work behind non-Anthropic gateways.
-- **Optional two-model routing** — `JARVIS_FAST_MODEL` sends face commands and
-  small talk to a faster model in the same session.
-- Red theme, calmer scene, sharper reactor ring, "Hey String" wake word,
-  bridge bound to 127.0.0.1, Chrome double-transcript fix (from
-  [erte-del/Jarvis](https://github.com/erte-del/Jarvis)).
+- **Arc reactor centre** — crisp concentric HUD arcs that collapse when idle,
+  expand when listening, tilt into a 3D gyroscope while thinking, and pulse
+  with the voice.
+- **Local Whisper hearing** (whisper.cpp, large-v3-turbo, ~0.25 s per phrase)
+  with live words as you speak — works in every browser, Brave and Opera included.
+- **Kokoro voice** — a neural voice that runs locally in the browser.
+- **Research wall** — "research X" tiles stat cards, native bar/line charts,
+  findings, images and sources from one `research_wall` call.
+- **Memory** — "remember I live in Bengaluru"; facts persist in
+  `~/.string/memory.json` (outside the repo) and load into every session.
+- **Proactive mode** — with monitoring tools on, checks every 10 minutes while
+  idle and speaks only when something is firing. **BRIEF** button and an
+  automatic morning briefing.
+- **Plain-words status** ("Checking the weather in Mumbai…"), toolbar
+  (HISTORY, TIDY, CLEAR VIEW, BRIEF, CAMERA), type-to-ask box.
+- **Desktop app** with a global hotkey (⌥Space) — `npm run desktop`.
+- `web_search` (Serper/Brave with a key, Wikipedia without) and a keyless
+  `weather` tool (Open-Meteo).
+- Speed: work MCP servers off by default (`JARVIS_MCP=gcp-grafana` to opt in,
+  loaded on demand), auto power-on, no boot sequence.
 
 **Run it**
 
 ```bash
 npm install
-cp .kimi.env.example .kimi.env   # fill in your gateway URL and token
-./start-kimi.sh                  # UI on http://localhost:5174
+cp .kimi.env.example .kimi.env      # your gateway URL and token
+brew install whisper-cpp            # local speech-to-text
+curl -L -o models/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+./start-kimi.sh                     # http://localhost:5174
+npm run desktop                     # optional: the desktop app, ⌥Space to summon
 ```
 
-Use Chrome (Brave blocks browser speech recognition) or add an ElevenLabs key.
+Options: `JARVIS_MCP=gcp-grafana` (work tools + proactive checks),
+`VOICE=af_heart` (Kokoro voice), `STRING_HOME_CITY=Mumbai`, `ZEN_HOTKEY=Alt+Z`.
 
 ---
 
