@@ -21,8 +21,9 @@ ZEN is a fork of [adewaskar/jarvis](https://github.com/adewaskar/jarvis)
 ## What it does
 
 - **Talks and listens locally.** Speech-to-text is Whisper large-v3-turbo on
-  your Mac's GPU (~0.25 s a phrase, any browser); the voice is Kokoro, also on
-  your Mac (~0.2 s a sentence, 9 voices).
+  your Mac's GPU (~0.25 s a phrase, any browser). The voice is
+  **Chatterbox Turbo** — natural and expressive (~0.5 s a sentence) — or nine
+  faster Kokoro voices (~0.2 s), all on your Mac.
 - **Answers and researches.** "Research the EV market in India" fills the
   screen with stat cards, charts, findings and sources. Weather, maths, time,
   dates and unit conversions answer instantly.
@@ -93,7 +94,7 @@ curl -L -o models/ggml-large-v3-turbo-q5_0.bin \
 
 The model is ~570 MB and stays in `models/` (git-ignored).
 
-### 4. Local voice — Kokoro (recommended)
+### 4. Local voice — Chatterbox and Kokoro (recommended)
 
 ```bash
 uv venv .venv-tts --python 3.12
@@ -101,7 +102,9 @@ uv pip install --python .venv-tts/bin/python "mlx-audio[server]" "misaki[en]" \
   "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 ```
 
-Without it ZEN falls back to the browser's voice, which sounds robotic.
+The first start downloads the voice models (Chatterbox Turbo ~1 GB, Kokoro
+~330 MB); after that they run offline. Without this step ZEN falls back to the
+browser's voice, which sounds robotic.
 
 ### 5. Start ZEN
 
@@ -232,6 +235,7 @@ deleting, and password fields. ZEN tells you those are your step.
 | "Tell me about the Taj Mahal" | Answers, and shows a picture |
 | "Play Night Changes" · "Pause" · "Next song" · "What's playing?" | Spotify, in the background |
 | "Open terminal" / "Open kitty" | A real shell inside ZEN |
+| "Open kitty with Claude Code" · "Ask Claude to explain this repo" | Starts Claude Code in ZEN's terminal and types your message (you approve each one) |
 | "Open Slack" · "Volume down" · "Mute" | Opens allowlisted apps, controls volume |
 | "Remind me in 20 minutes to check the deploy" · "Ping me at 4" | Spoken reminder + macOS notification |
 | "Remember I live in Bengaluru" · "What do you remember?" · "Forget that" | Long-term memory |
@@ -249,7 +253,8 @@ Click **⚙** in the toolbar. Everything applies instantly and is saved on your 
 - **Appearance** — 8 two-tone themes (Sapphire, Sapphire & Gold, Cyberpunk,
   Aurora, Ember, Rose, Violet & Teal, Mono) or your own primary and secondary
   colours; reactor size.
-- **Voice** — 9 Kokoro voices, British and American, with **▶ Preview**.
+- **Voice** — Chatterbox Turbo (most natural) or 9 Kokoro voices, British and
+  American, with **▶ Preview**.
 - **Listening** — how long ZEN keeps listening after answering (0–20 s).
 - **Interface** — show or hide the brand, systems list, transcript,
   suggestions and activity badge.

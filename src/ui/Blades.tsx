@@ -286,14 +286,28 @@ const Body = memo(function Body({ blade }: { blade: Blade }) {
   }
 
   if (blade.kind === 'image' && blade.url) {
-    return <img className="bl-image" src={viaBridge(blade.url, 'img')} alt={blade.title} />
+    return (
+      <img
+        className="bl-image"
+        src={viaBridge(blade.url, 'img')}
+        alt={blade.title}
+        onError={(e) => (e.currentTarget.style.display = 'none')}
+      />
+    )
   }
 
   if (blade.kind === 'gallery') {
     return (
       <div className="bl-gallery">
         {(blade.images ?? []).map((src, i) => (
-          <img key={`${src}-${i}`} className="bl-thumb" src={viaBridge(src, 'img')} alt="" />
+          <img
+            key={`${src}-${i}`}
+            className="bl-thumb"
+            src={viaBridge(src, 'img')}
+            alt=""
+            // A picture that will not load leaves no broken box behind.
+            onError={(e) => (e.currentTarget.style.display = 'none')}
+          />
         ))}
       </div>
     )
@@ -593,7 +607,10 @@ function Card({
         // pointerdown, not mousedown: a hand dispatches PointerEvents, and a
         // mousedown handler simply never hears them. Focusing a blade by pinch
         // was silently impossible until this changed.
-        onPointerDown={() => {
+        onPointerDown={(e) => {
+          // Not for its own buttons: focusing re-stacks the blades, the card
+          // moves under the pointer, and the ✕ / ⤢ click lands on nothing.
+          if ((e.target as HTMLElement).closest('button')) return
           if (!focused) onFocus()
         }}
       >

@@ -23,8 +23,10 @@ import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { searchServer, searchSource } from './search.mjs'
 import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
-import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount, playUri, spotifyInBackground } from './mac.mjs'
+import { macServer, spotifyState, spotifyControl, spotifyDuck, startReminderClock, reminderCount, playUri, spotifyInBackground } from './mac.mjs'
 import { browserServer } from './browser.mjs'
+import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
+import { z } from 'zod'
 import { forYou, recommendations, lyrics, spotifyStatus, loginUrl, finishLogin, searchTrack, canSearch } from './music.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -153,6 +155,8 @@ const WHISPER_PHANTOMS =
 const LOCAL_TTS_URL = (process.env.LOCAL_TTS_URL || '').replace(/\/+$/, '') || null
 const LOCAL_TTS_MODEL = process.env.LOCAL_TTS_MODEL || 'prince-canuma/Kokoro-82M'
 const LOCAL_TTS_VOICE = process.env.LOCAL_TTS_VOICE || 'bm_george'
+/** The expressive voice option (Settings → Voice → Chatterbox Turbo). */
+const CHATTERBOX_MODEL = process.env.CHATTERBOX_MODEL || 'mlx-community/chatterbox-turbo-8bit'
 /** A voice the page may pick per sentence (Settings → Voice). */
 const KOKORO_VOICE_ID = /^[ab][mf]_[a-z]+$/
 
@@ -376,6 +380,10 @@ function decideTool(name, input) {
     // user's Allow in ZEN (browser.mjs) — that card is the gate, not this.
     if (server === 'jarvis_hands') return true
 
+    // Messages into a Claude Code session ZEN started; each one approved by
+    // the user, '!' (shell) refused — see claudeCodeServer.
+    if (server === 'jarvis_term') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -414,6 +422,7 @@ function describeTool(name, input = {}) {
   if (tool === 'web_search' || name === 'WebSearch') return `Searching “${cut(input.query ?? '')}”…`
   if (name === 'WebFetch') return `Reading ${host(input.url)}…`
   if (tool === 'remember') return 'Remembering that…'
+  if (tool === 'claude_code_say') return 'Typing into Claude Code (waiting for your OK)…'
   if (tool === 'safari_page') return 'Reading the page in Safari…'
   if (tool === 'safari_type') return 'Typing in Safari (waiting for your OK)…'
   if (tool === 'safari_click') return 'Clicking in Safari (waiting for your OK)…'
@@ -893,8 +902,9 @@ const handleRequest = async (req, res) => {
       if (req.method === 'POST') {
         let body = ''
         for await (const c of req) body += c
-        const { action, position } = JSON.parse(body || '{}')
-        await spotifyControl(action, position)
+        const { action, position, on } = JSON.parse(body || '{}')
+        if (action === 'duck') await spotifyDuck(Boolean(on))
+        else await spotifyControl(action, position)
         res.writeHead(204, cors)
         return res.end()
       }
@@ -1081,18 +1091,25 @@ const handleRequest = async (req, res) => {
     }
     if (!key) {
       try {
+        // Chatterbox Turbo: the expressive voice, ~0.8s a sentence. Kokoro:
+        // nine voices, ~0.2s. Both on the same local server.
+        const kokoroVoice = KOKORO_VOICE_ID.test(String(voice ?? '')) ? voice : LOCAL_TTS_VOICE
+        const body =
+          voice === 'chatterbox'
+            ? { model: CHATTERBOX_MODEL, input: text, response_format: 'mp3' }
+            : {
+                model: LOCAL_TTS_MODEL,
+                input: text,
+                voice: kokoroVoice,
+                // Kokoro's language from the voice id: bm_/bf_ British, else American.
+                lang_code: /^b[mf]_/.test(kokoroVoice) ? 'b' : 'a',
+                speed: 1.05,
+                response_format: 'mp3',
+              }
         const upstream = await fetch(`${LOCAL_TTS_URL}/v1/audio/speech`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: LOCAL_TTS_MODEL,
-            input: text,
-            voice: KOKORO_VOICE_ID.test(String(voice ?? '')) ? voice : LOCAL_TTS_VOICE,
-            // Kokoro's language from the voice id: bm_/bf_ British, else American.
-            lang_code: /^b[mf]_/.test(KOKORO_VOICE_ID.test(String(voice ?? '')) ? voice : LOCAL_TTS_VOICE) ? 'b' : 'a',
-            speed: 1.05,
-            response_format: 'mp3',
-          }),
+          body: JSON.stringify(body),
           signal: AbortSignal.timeout(30_000),
         })
         if (!upstream.ok) throw new Error(`local voice answered ${upstream.status}`)
@@ -1363,16 +1380,55 @@ startReminderClock((r) => {
  * Yours to type in, not the model's — no tool reaches it, and it is behind the
  * same origin allowlist and loopback-only bind as everything else here.
  */
-function handleTerminal(socket) {
-  console.log('[jarvis] terminal opened')
+/**
+ * Programs ZEN may start in the terminal it opens, by name — never arbitrary
+ * text. After launch the program is the user's; ZEN cannot type into it.
+ */
+const TERMINAL_LAUNCH = {
+  claude: 'claude',
+  python: 'python3',
+  node: 'node',
+  top: 'top',
+  htop: 'htop',
+  btop: 'btop',
+  vim: 'vim',
+  nvim: 'nvim',
+  lazygit: 'lazygit',
+}
+
+/**
+ * The terminal is the user's normal terminal, not ZEN's: none of ZEN's own
+ * settings leak into it. Otherwise Claude Code started there inherited ZEN's
+ * model gateway instead of the user's own Claude login.
+ */
+function terminalEnv() {
+  const env = { ...process.env }
+  for (const k of Object.keys(env)) {
+    if (/^(ANTHROPIC_|CLAUDE_CODE_|JARVIS_|LOCAL_TTS_|WHISPER_|SPOTIFY_|VITE_|STRING_|ZEN_|SERPER_|BRAVE_SEARCH_|ENABLE_TOOL_SEARCH)/.test(k)) delete env[k]
+  }
+  return env
+}
+
+/** Live terminal sessions, newest last: what each started and its process. */
+const terminals = new Set()
+
+function handleTerminal(socket, req) {
+  const run = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('run')
+  const launch = run && Object.hasOwn(TERMINAL_LAUNCH, run) ? TERMINAL_LAUNCH[run] : null
+  console.log(`[jarvis] terminal opened${launch ? ` running ${launch}` : ''}`)
   const child = spawn('python3', [fileURLToPath(new URL('./zen_pty.py', import.meta.url))], {
     stdio: ['pipe', 'pipe', 'ignore', 'pipe'],
-    env: { ...process.env, ZEN_TERM_CWD: process.env.ZEN_TERM_CWD || homedir() },
+    env: { ...terminalEnv(), ZEN_TERM_CWD: process.env.ZEN_TERM_CWD || homedir() },
   })
+  const entry = { launch, child, at: Date.now(), tail: '' }
+  terminals.add(entry)
+  child.on('exit', () => terminals.delete(entry))
   // Output arrives in arbitrary chunks; never split a multi-byte character.
   const utf8 = new StringDecoder('utf8')
   child.stdout.on('data', (d) => {
-    if (socket.readyState === socket.OPEN) socket.send(utf8.write(d))
+    const text = utf8.write(d)
+    entry.tail = (entry.tail + text).slice(-6000)
+    if (socket.readyState === socket.OPEN) socket.send(text)
   })
   socket.on('message', (raw) => {
     let m
@@ -1393,10 +1449,63 @@ function handleTerminal(socket) {
   })
   child.stdin.on('error', () => {})
   child.stdio[3].on('error', () => {})
+  // Typed into the fresh shell once its prompt is up, so it runs with the
+  // user's PATH and aliases exactly as if they had typed it.
+  if (launch) setTimeout(() => child.stdin.writable && child.stdin.write(`${launch}\r`), 700)
+}
+
+/**
+ * Talking to Claude Code for the user: ZEN types a message into a Claude Code
+ * session it started in the terminal window. Only there — never a plain
+ * shell — and each message is shown to the user to approve first. A message
+ * starting with "!" is refused: Claude Code runs those as shell commands.
+ */
+function claudeCodeServer(ask) {
+  return createSdkMcpServer({
+    name: 'jarvis_term',
+    version: '1.0.0',
+    tools: [
+      tool(
+        'claude_code_say',
+        'Type a message into the Claude Code session running in ZEN\'s terminal (one ZEN started with ' +
+          'open_app terminal + run "claude"), then press Enter. Use it to pass the user\'s request to Claude ' +
+          'Code in their words. The user approves each message. Not for shell commands.',
+        { text: z.string().describe('The message for Claude Code, in plain words.') },
+        async ({ text }) => {
+          const say = String(text ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim()
+          const fail = (t) => ({ isError: true, content: [{ type: 'text', text: t }] })
+          if (!say) return fail('Nothing to type.')
+          if (say.startsWith('!')) return fail('Refused: a message starting with "!" runs a shell command in Claude Code. Ask the user to type it.')
+          const target = [...terminals].filter((t) => t.launch === 'claude').at(-1)
+          if (!target) return fail('No Claude Code session is open. Open the terminal with run "claude" first.')
+          // Claude Code's own questions are the user's to answer — trusting a
+          // folder above all. Typing now would answer them (Enter = the default).
+          const screen = target.tail.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '').replace(/\s+/g, '')
+          if (/Isthisaprojectyoucreated|Doyoutrustthefiles|Yes,Itrustthisfolder/i.test(screen.slice(-1500))) {
+            return fail(
+              'Claude Code is asking whether to trust this folder. That answer is the user\'s: tell them to choose ' +
+                'in the terminal window (it remembers per folder), then send the message again.',
+            )
+          }
+          let ok = false
+          try {
+            ok = (await ask('approve', { text: `Type into Claude Code: “${say.slice(0, 300)}${say.length > 300 ? '…' : ''}”` }, 120_000))?.ok === true
+          } catch {
+            ok = false
+          }
+          if (!ok) return fail('The user said no.')
+          target.child.stdin.write(say)
+          // Enter on its own, a beat later, so the input box has the text before it submits.
+          setTimeout(() => target.child.stdin.writable && target.child.stdin.write('\r'), 150)
+          return { content: [{ type: 'text', text: 'Sent to Claude Code. Its answer is in the terminal window.' }] }
+        },
+      ),
+    ],
+  })
 }
 
 wss.on('connection', (socket, req) => {
-  if ((req.url ?? '').split('?')[0] === '/term') return handleTerminal(socket)
+  if ((req.url ?? '').split('?')[0] === '/term') return handleTerminal(socket, req)
   console.log('[jarvis] client connected')
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1589,9 +1698,10 @@ wss.on('connection', (socket, req) => {
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
         jarvis_hands: browserServer(ask),
+        jarvis_term: claudeCodeServer(ask),
         jarvis_search: searchServer(),
         jarvis_memory: memoryServer(),
-        jarvis_mac: macServer({ openTerminal: () => send({ type: 'ui', op: 'terminal', args: { open: true } }) }),
+        jarvis_mac: macServer({ openTerminal: (run) => send({ type: 'ui', op: 'terminal', args: { open: true, run } }) }),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

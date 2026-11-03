@@ -464,8 +464,31 @@ export function displayServer(emit, emitBlade) {
 
       tool('blade', BLADE_DESCRIPTION, bladeSchema, async (args) => {
         const kind = args.kind
-        const url = String(args.url ?? '').trim()
-        const images = Array.isArray(args.images) ? args.images.filter(Boolean) : []
+        let url = String(args.url ?? '').trim()
+        let images = Array.isArray(args.images) ? args.images.filter(Boolean) : []
+        let mode = args.mode ?? 'reader'
+
+        // Pictures that do not load are dropped before anything opens.
+        if (kind === 'gallery' && images.length) {
+          images = await workingImages(images.slice(0, 8))
+          if (!images.length) {
+            return refuse('Not opened: none of those picture links load. Use image URLs from a search result, or say there are no pictures.')
+          }
+        }
+        if (kind === 'image' && url) {
+          const [good] = await workingImages([url])
+          if (!good) return refuse('Not opened: that picture link does not load. Use an image URL from a search result.')
+          url = good
+        }
+        // A page built by JavaScript has nothing for the reader view to show;
+        // open the live page instead of an empty column.
+        if (kind === 'article' && url && mode === 'reader') {
+          const probe = await probeUrl(url).catch(() => null)
+          if (probe?.suggestion === 'unavailable') {
+            return refuse('Not opened: that page does not load (it may not exist). Search for another source.')
+          }
+          if (probe?.suggestion === 'blade_live') mode = 'live'
+        }
 
         // Refused rather than emitted, for the same reason the display tool
         // refuses an empty body: a blade that opens onto nothing looks like the
@@ -493,7 +516,7 @@ export function displayServer(emit, emitBlade) {
           url: url || undefined,
           images: images.length ? images.slice(0, 8) : undefined,
           html: args.html || undefined,
-          mode: args.mode ?? 'reader',
+          mode,
           chart: kind === 'chart' ? args.chart : undefined,
           stat: kind === 'stat' ? args.stat : undefined,
           // A reading column for anything meant to be read, a broad frame for
@@ -570,3 +593,30 @@ export function displayServer(emit, emitBlade) {
 }
 
 const refuse = (text) => ({ isError: true, content: [{ type: 'text', text }] })
+
+/**
+ * Wikimedia no longer serves arbitrary thumbnail sizes (a /thumb/…/640px-… link
+ * answers 400), and those are exactly the links search results carry. The
+ * original file behind any thumbnail always loads, so ask for that instead.
+ */
+const wikimediaOriginal = (u) =>
+  u.replace(/^(https:\/\/upload\.wikimedia\.org\/wikipedia\/[^/]+)\/thumb\/(.+?)\/[^/]*px-[^/]+$/, '$1/$2')
+
+/**
+ * Keeps only the picture links that really load as images, so a gallery never
+ * opens onto broken boxes. Checked in parallel, a few seconds at most.
+ */
+async function workingImages(urls) {
+  const checked = await Promise.all(
+    urls.map(async (raw) => {
+      const url = wikimediaOriginal(String(raw).trim())
+      try {
+        const r = await probeUrl(url)
+        return r?.suggestion === 'blade_image' ? url : null
+      } catch {
+        return null
+      }
+    }),
+  )
+  return checked.filter(Boolean)
+}

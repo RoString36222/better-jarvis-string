@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { canSearch, searchTrack } from './music.mjs'
+import { canSearch, playViaApi, searchTrack } from './music.mjs'
 
 /**
  * Hands on the Mac — a short list of named actions, not a shell.
@@ -86,11 +86,25 @@ const DEFAULT_PLAYLIST = process.env.ZEN_DEFAULT_PLAYLIST || 'spotify:playlist:3
  * 1.3 loads a URI paused and pops its window, so: load, play, hide, check.
  */
 export async function playUri(uri) {
+  // Premium: start it remotely, nothing on screen moves.
+  if (await playViaApi(uri)) {
+    await new Promise((r) => setTimeout(r, 900))
+    if (await isPlaying()) return true
+  }
+  // Otherwise AppleScript, which brings Spotify forward. Remember who was in
+  // front (ZEN) and hand focus straight back after hiding Spotify — hiding
+  // alone let macOS give focus to some other app and bury ZEN.
+  const front = await run(
+    'tell application "System Events" to get bundle identifier of first process whose frontmost is true',
+  ).catch(() => '')
   await run('on run argv\ntell application "Spotify" to play track (item 1 of argv)\nend run', [uri])
   await new Promise((r) => setTimeout(r, 700))
   if (!(await isPlaying())) await run(SPOTIFY('play')).catch(() => {})
   await hideSpotify()
-  await new Promise((r) => setTimeout(r, 800))
+  if (front && front !== 'com.spotify.client') {
+    await run('on run argv\ntell application id (item 1 of argv) to activate\nend run', [front]).catch(() => {})
+  }
+  await new Promise((r) => setTimeout(r, 600))
   return isPlaying()
 }
 
@@ -122,6 +136,32 @@ export async function spotifyState() {
     art: /^https:\/\//.test(art) ? art : null,
     duration: Number(durationMs) / 1000,
     position: Number(String(position).replace(',', '.')),
+  }
+}
+
+/**
+ * Spotify's own volume, lowered while the user talks to ZEN and while ZEN
+ * answers, so the microphone hears the user rather than the song. Restored to
+ * exactly where it was. Only touches Spotify if it is running and playing.
+ */
+let duckedFrom = null
+export async function spotifyDuck(on) {
+  try {
+    if (!resolveApp('Spotify')) return
+    if ((await run('application "Spotify" is running').catch(() => 'false')) !== 'true') return
+    if (on) {
+      if (duckedFrom !== null || !(await isPlaying())) return
+      const v = Number(await run(SPOTIFY('get sound volume')))
+      if (!Number.isFinite(v)) return
+      duckedFrom = v
+      await run(SPOTIFY(`set sound volume ${Math.max(4, Math.round(v * 0.15))}`))
+    } else if (duckedFrom !== null) {
+      const back = duckedFrom
+      duckedFrom = null
+      await run(SPOTIFY(`set sound volume ${back}`))
+    }
+  } catch {
+    /* ducking is a nicety */
   }
 }
 
@@ -217,11 +257,25 @@ export function macServer({ openTerminal } = {}) {
         'open_app',
         `Open (or bring to front) an app on the user's Mac. Allowed: ${APPS.join(', ')}. ` +
           'Terminal, kitty, iTerm and other terminals open INSIDE ZEN as a window instead — pass "terminal".',
-        { app: z.string().describe('App name, e.g. "Spotify", "Slack", "Chrome".') },
-        async ({ app }) => {
+        {
+          app: z.string().describe('App name, e.g. "Spotify", "Slack", "Chrome", or "terminal".'),
+          run: z
+            .enum(['claude', 'python', 'node', 'top', 'htop', 'btop', 'vim', 'nvim', 'lazygit'])
+            .optional()
+            .catch(undefined)
+            .describe(
+              'Terminal only: a program to start in it. "claude" = Claude Code. Only these names; ' +
+                'you cannot type other commands into the terminal.',
+            ),
+        },
+        async ({ app, run }) => {
           if (openTerminal && TERMINALS.test(String(app ?? '').trim())) {
-            openTerminal()
-            return ok('Opened a terminal inside ZEN (left half of the screen).')
+            openTerminal(run)
+            return ok(
+              run
+                ? `Opened a terminal inside ZEN and started ${run === 'claude' ? 'Claude Code' : run} in it. It is the user's to use from here.`
+                : 'Opened a terminal inside ZEN (left half of the screen).',
+            )
           }
           const name = resolveApp(app)
           if (!name) return fail(`"${app}" is not an app I can open (allowed: ${APPS.join(', ')}), or it is not installed.`)

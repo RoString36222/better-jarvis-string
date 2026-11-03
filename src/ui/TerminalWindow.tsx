@@ -24,7 +24,7 @@ const THEME = {
   brightBlue: '#9cbcff', brightMagenta: '#cdb2ff', brightCyan: '#94e6ff', brightWhite: '#ffffff',
 }
 
-function Shell({ onEnded }: { onEnded: () => void }) {
+function Shell({ onEnded, run }: { onEnded: () => void; run?: string }) {
   const host = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<'connecting' | 'open' | 'closed'>('connecting')
 
@@ -44,7 +44,7 @@ function Shell({ onEnded }: { onEnded: () => void }) {
     term.open(host.current)
 
     let retry = 0
-    const ws = new WebSocket(`${BRIDGE_WS_URL.replace(/\/$/, '')}/term`)
+    const ws = new WebSocket(`${BRIDGE_WS_URL.replace(/\/$/, '')}/term${run ? `?run=${encodeURIComponent(run)}` : ''}`)
     const sendSize = () => {
       try {
         fit.fit()
@@ -91,6 +91,16 @@ function Shell({ onEnded }: { onEnded: () => void }) {
 export function TerminalWindow() {
   const open = useStore((s) => s.terminalOpen)
   const setOpen = useStore((s) => s.setTerminalOpen)
+  const terminalRun = useStore((s) => s.terminalRun)
+  /** Bumped to start a fresh shell after the old one exited. */
+  const [session, setSession] = useState(0)
+  /** Only the session ZEN opened starts the program; ↻ gives a plain shell. */
+  const [runSession, setRunSession] = useState(-1)
+  useEffect(() => {
+    if (terminalRun) setRunSession(session)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalRun])
+  const runFor = (n: number) => (terminalRun && n === runSession ? terminalRun.run : undefined)
   const [wide, setWide] = useState(false)
   /** Dragged size, remembered across sessions; null = the default half screen. */
   const [size, setSize] = useState<{ w: number; h: number } | null>(() => {
@@ -127,8 +137,6 @@ export function TerminalWindow() {
     el.addEventListener('pointermove', move)
     el.addEventListener('pointerup', up)
   }
-  /** Bumped to start a fresh shell after the old one exited. */
-  const [session, setSession] = useState(0)
 
   return (
     <AnimatePresence>
@@ -168,7 +176,7 @@ export function TerminalWindow() {
             </span>
           </header>
           <div className="tw-body">
-            <Shell key={session} onEnded={() => setSession((n) => n + 1)} />
+            <Shell key={`${session}|${terminalRun?.at ?? 0}`} run={runFor(session)} onEnded={() => setSession((n) => n + 1)} />
           </div>
           <span className="bl-grip tw-grip" onPointerDown={onGrip} title="Drag to resize" />
         </motion.section>

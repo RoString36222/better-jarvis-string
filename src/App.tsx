@@ -14,7 +14,7 @@ import * as hands from './lib/hands'
 import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
-import { TTS_ENGINE } from './config'
+import { TTS_ENGINE, BRIDGE_HTTP_URL } from './config'
 import { forTool, attention } from './lib/fillers'
 import {
   ask,
@@ -129,6 +129,23 @@ export default function App() {
   }
 
   // -- one turn -------------------------------------------------------------
+
+  // Spotify down while the user talks to ZEN and while ZEN answers, so the
+  // mic hears the user, not the song; back up when ZEN returns to rest.
+  useEffect(() => {
+    const ACTIVE = new Set(['waking', 'listening', 'thinking', 'tooling', 'speaking'])
+    let ducked = false
+    return store.subscribe((st) => {
+      const want = ACTIVE.has(st.phase)
+      if (want === ducked) return
+      ducked = want
+      void fetch(`${BRIDGE_HTTP_URL}/media`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'duck', on: want }),
+      }).catch(() => {})
+    })
+  }, [])
 
   /** Alerts that arrived while the window was hidden (the Dock badge). */
   const unseen = useRef(0)
@@ -583,7 +600,8 @@ export default function App() {
           s.resetUi()
           break
         case 'terminal':
-          s.setTerminalOpen(a.open ?? true)
+          if (a.run) s.openTerminalWith(String(a.run))
+          else s.setTerminalOpen(a.open ?? true)
           break
         case 'screen':
           s.clearScreen(a.what ?? 'all')

@@ -243,3 +243,28 @@ export async function forYou() {
     return { needLogin: false, basedOn: (artists.items ?? []).map((a) => a.name), tracks: out }
   })
 }
+
+/**
+ * Start a track on this Mac's Spotify through the Web API — no window comes
+ * forward at all. Needs Premium (Spotify refuses playback control otherwise),
+ * so a false here just means "use the AppleScript path".
+ */
+export async function playViaApi(uri) {
+  if (!loadToken()?.refresh_token) return false
+  try {
+    const token = await accessToken()
+    const auth = { Authorization: `Bearer ${token}` }
+    const devices = await json('https://api.spotify.com/v1/me/player/devices', { headers: auth })
+    const mac = (devices.devices ?? []).find((d) => d.type === 'Computer') ?? devices.devices?.[0]
+    if (!mac) return false
+    const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(mac.id)}`, {
+      method: 'PUT',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ uris: [uri] }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    return r.status === 204 || r.status === 202 || r.ok
+  } catch {
+    return false
+  }
+}

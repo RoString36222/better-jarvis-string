@@ -47,7 +47,7 @@ export function SettingsPanel() {
     // Spoken through the normal speaker so it is exactly what answers sound like.
     setTimeout(() => {
       const spk = createSpeaker()
-      spk.push(`This is ${VOICES[voice]?.split(' — ')[0] ?? 'the new voice'}. How do I sound, sir?`)
+      spk.push(`This is ${VOICES[voice]?.split(' — ')[0] ?? 'the new voice'}. Twenty-one degrees and overcast, sir — how do I sound?`)
       void spk.end()
     }, 50)
   }
@@ -148,7 +148,7 @@ export function SettingsPanel() {
 
               {tab === 'Voice' && (
                 <>
-                  <div className="st-section">ZEN's voice (Kokoro, on this Mac)</div>
+                  <div className="st-section">ZEN's voice (runs on this Mac)</div>
                   <div className="st-list">
                     {Object.entries(VOICES).map(([id, label]) => (
                       <div key={id} className={`st-voice${settings.voice === id ? ' st-voice-on' : ''}`}>

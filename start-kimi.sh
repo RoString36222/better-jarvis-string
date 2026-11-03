@@ -44,7 +44,13 @@ fi
 # when its environment is set up (.venv-tts; see README). Same voice ids as
 # VOICE=…, e.g. bm_george, af_heart.
 if [ -z "${LOCAL_TTS_URL:-}" ] && [ -x .venv-tts/bin/python ]; then
-  .venv-tts/bin/python -m mlx_audio.server --host 127.0.0.1 --port 8179 \
+  # Offline once the models are downloaded: every model load otherwise checks
+  # Hugging Face first, and a stalled check hangs the server with every
+  # sentence queued behind it.
+  HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub"
+  OFFLINE=0
+  [ -d "$HF_CACHE/models--prince-canuma--Kokoro-82M" ] && [ -d "$HF_CACHE/models--mlx-community--chatterbox-turbo-8bit" ] && OFFLINE=1
+  HF_HUB_OFFLINE=$OFFLINE .venv-tts/bin/python -m mlx_audio.server --host 127.0.0.1 --port 8179 \
     > "${TMPDIR:-/tmp}/zen-voice.log" 2>&1 &
   VOICE_PID=$!
   export LOCAL_TTS_URL="http://127.0.0.1:8179"
@@ -53,7 +59,10 @@ if [ -z "${LOCAL_TTS_URL:-}" ] && [ -x .venv-tts/bin/python ]; then
   # The first sentence loads the model (~9s); pay that now, not mid-answer.
   ( for i in $(seq 1 60); do curl -s -o /dev/null "$LOCAL_TTS_URL/" && break; sleep 1; done
     curl -s -o /dev/null -X POST "$LOCAL_TTS_URL/v1/audio/speech" -H 'content-type: application/json' \
-      -d "{\"model\":\"prince-canuma/Kokoro-82M\",\"input\":\"Ready.\",\"voice\":\"$LOCAL_TTS_VOICE\",\"response_format\":\"mp3\"}" ) &
+      -d "{\"model\":\"prince-canuma/Kokoro-82M\",\"input\":\"Ready.\",\"voice\":\"$LOCAL_TTS_VOICE\",\"lang_code\":\"b\",\"response_format\":\"mp3\"}"
+    # Chatterbox Turbo too (the default voice in Settings); first run downloads ~1 GB.
+    curl -s -o /dev/null -X POST "$LOCAL_TTS_URL/v1/audio/speech" -H 'content-type: application/json' \
+      -d '{"model":"mlx-community/chatterbox-turbo-8bit","input":"Ready.","response_format":"mp3"}' ) &
 fi
 trap 'kill ${WHISPER_PID:-} ${VOICE_PID:-} 2>/dev/null' EXIT INT TERM
 

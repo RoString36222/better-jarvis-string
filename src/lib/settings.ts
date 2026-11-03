@@ -40,7 +40,8 @@ export const PRESETS: Record<string, { label: string; primary: string; secondary
 }
 
 export const VOICES: Record<string, string> = {
-  bm_george: 'George — British male (default)',
+  chatterbox: 'Chatterbox Turbo — most natural & expressive (~0.8s to start)',
+  bm_george: 'George — British male, fastest',
   bm_fable: 'Fable — British male, warmer',
   bm_lewis: 'Lewis — British male, lower',
   bm_daniel: 'Daniel — British male, brighter',
@@ -53,7 +54,7 @@ export const VOICES: Record<string, string> = {
 
 export const DEFAULTS: Settings = {
   theme: { preset: 'sapphire', ...PRESETS.sapphire },
-  voice: 'bm_george',
+  voice: 'chatterbox',
   followUpSec: 7,
   reactorScale: 1,
   show: { systems: true, transcript: true, suggestions: true, brand: true, toolBadge: true, picks: true },
