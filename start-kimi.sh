@@ -3,9 +3,12 @@
 #   ./start-kimi.sh                 Kimi for everything
 #   FAST=<model> ./start-kimi.sh    Kimi + a fast model for face commands and small talk
 cd "$(dirname "$0")"
-[ -f .kimi.env ] || { echo "Missing .kimi.env (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, ...)"; exit 1; }
-source .kimi.env
-export JARVIS_MODEL="${MODEL:-kimi-latest}"
+# Settings and keys (git-ignored). Optional: without it ZEN uses your Claude
+# Code login and every keyless default. See .kimi.env.example.
+[ -f .kimi.env ] && source .kimi.env
+# The model: MODEL=… to override, else the gateway's ANTHROPIC_MODEL, else Claude
+# (with no gateway set, ZEN runs on your Claude Code login).
+export JARVIS_MODEL="${MODEL:-${ANTHROPIC_MODEL:-sonnet}}"
 export JARVIS_FAST_MODEL="${FAST:-}"
 export PORT="${PORT:-5174}"
 # Work MCP servers (Grafana, Notion...) cost latency on every turn: off by

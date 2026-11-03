@@ -1,380 +1,346 @@
-# Better JARVIS (Z.E.N.)
+# Z.E.N.
 
-A sapphire, research-focused fork of [adewaskar/jarvis](https://github.com/adewaskar/jarvis)
-(MIT, by Aditya Dewaskar) that runs on any Anthropic-compatible model gateway.
-Say **"Hey Zen"**, or type in the box at the bottom.
+A voice assistant for your Mac with a holographic interface. Say **"Hey Zen"**
+(or type) and it answers out loud, puts what it found on screen, plays your
+music, opens a terminal, fills in web forms with your permission, and reminds
+you of things — while the heavy lifting runs locally on your Mac.
 
-**What this fork adds**
+<p align="center">
+  <img src="docs/images/reactor-states.png" alt="ZEN's reactor: idle, listening, thinking, speaking" width="100%">
+</p>
 
-- **Arc reactor centre** — crisp concentric HUD arcs that collapse when idle,
-  expand when listening, tilt into a 3D gyroscope while thinking, and pulse
-  with the voice.
-- **Local Whisper hearing** (whisper.cpp, large-v3-turbo, ~0.25 s per phrase)
-  with live words as you speak — works in every browser, Brave and Opera included.
-- **Kokoro voice on the Mac** (mlx-audio server, ~0.2 s per sentence) — no
-  longer depends on the browser having WebGPU.
-- **Instant answers** for maths, time, date and unit conversions (~50 ms, no model call).
-- **Barge-in by words, not loudness** — "stop", "wait", "Zen…" interrupt; its own
-  voice through the speakers and background audio do not.
-- **Research wall** — "research X" tiles stat cards, native bar/line charts,
-  findings, images and sources from one `research_wall` call.
-- **Memory** — "remember I live in Bengaluru"; facts persist in
-  `~/.string/memory.json` (outside the repo) and load into every session.
-- **Proactive mode** — with monitoring tools on, checks every 10 minutes while
-  idle and speaks only when something is firing. **BRIEF** button and an
-  automatic morning briefing.
-- **Plain-words status** ("Checking the weather in Mumbai…"), toolbar
-  (HISTORY, TIDY, CLEAR VIEW, BRIEF, CAMERA), type-to-ask box.
-- **Mac control, safely** — "open Slack", "play Blinding Lights on Spotify", "next
-  song", "volume down": a fixed list of named actions (allowlisted apps,
-  Spotify, volume) with no shell behind them. Set `SPOTIFY_CLIENT_ID` and
-  `SPOTIFY_CLIENT_SECRET` (a free Spotify developer app) for "play X" to start
-  the track by itself; without them it opens Spotify's search for it.
-- **Holographic music player** — album art, seek bar, previous / play-pause /
-  next, shown whenever Spotify is playing.
-- **Timers and reminders** — "remind me in 20 minutes to check the deploy",
-  "ping me at 4": spoken when due, a macOS notification, and a Dock badge if
-  ZEN is hidden. Kept in `~/.string/reminders.json`.
-- **STOP button and Esc** cut ZEN off mid-answer.
-- **Desktop app** with a global hotkey (⌥Space) — `npm run desktop`.
-- `web_search` (Serper/Brave with a key, Wikipedia without) and a keyless
-  `weather` tool (Open-Meteo).
-- Speed: work MCP servers off by default (`JARVIS_MCP=gcp-grafana` to opt in,
-  loaded on demand), auto power-on, no boot sequence.
+| | |
+|---|---|
+| <img src="docs/images/player.png" alt="The music player with lyrics and recommendations"> | <img src="docs/images/settings.png" alt="Settings with two-tone themes"> |
 
-**Run it**
-
-```bash
-npm install
-cp .kimi.env.example .kimi.env      # your gateway URL and token
-brew install whisper-cpp            # local speech-to-text
-curl -L -o models/ggml-large-v3-turbo-q5_0.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
-# local voice (Kokoro on the GPU, ~0.2s per sentence)
-uv venv .venv-tts --python 3.12 && uv pip install --python .venv-tts/bin/python \
-  "mlx-audio[server]" "misaki[en]" \
-  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
-./start-kimi.sh                     # http://localhost:5174
-npm run desktop                     # optional: the desktop app, ⌥Space to summon
-```
-
-Options: `JARVIS_MCP=gcp-grafana` (work tools + proactive checks),
-`VOICE=af_heart` (Kokoro voice), `STRING_HOME_CITY=Mumbai`, `ZEN_HOTKEY=Alt+Z`.
+ZEN is a fork of [adewaskar/jarvis](https://github.com/adewaskar/jarvis)
+(MIT, by Aditya Dewaskar) — see [Credits](#credits).
 
 ---
 
-# J.A.R.V.I.S.
+## What it does
 
-A browser voice assistant with an Iron Man holographic interface. Say
-**"Hey Jarvis"**, he wakes, listens, and does real things through your tools —
-searches the web, generates images, drives your phone, reads your mail. The face
-is a web page (React + Vite + Three.js + custom GLSL). The brain is Claude Code,
-run headless as a library.
-
-**The only subscription you need is Claude Code.** No API keys, no OpenAI
-account, no cloud bill — the brain runs on your existing Claude Code login, and
-the heavy work (the model itself) runs on Anthropic's servers, so even a low-end
-laptop only has to draw the interface. **ElevenLabs is an optional add-on** that
-gives JARVIS a much better voice and sharper hearing; without it he speaks and
-listens through the browser's own speech, and everything still works.
+- **Talks and listens locally.** Speech-to-text is Whisper large-v3-turbo on
+  your Mac's GPU (~0.25 s a phrase, any browser); the voice is Kokoro, also on
+  your Mac (~0.2 s a sentence, 9 voices).
+- **Answers and researches.** "Research the EV market in India" fills the
+  screen with stat cards, charts, findings and sources. Weather, maths, time,
+  dates and unit conversions answer instantly.
+- **Your music, without leaving ZEN.** "Play Night Changes" plays it in
+  Spotify — hidden in the background — and ZEN shows a holographic player:
+  album art, seek bar, synced lyrics, **Up next** and **For you**
+  recommendations.
+- **Works like a small OS.** "Open terminal" opens a real shell inside ZEN.
+  "Open Slack", "volume down", "pause". Timers and reminders with macOS
+  notifications.
+- **Hands, with permission.** "Fill in this form in Safari" — ZEN reads the
+  page and types and clicks, asking you to approve every action first.
+- **Remembers.** "Remember I live in Bengaluru." Facts persist between sessions.
+- **Yours to style.** Two-tone themes, voices, what's on screen — all in ⚙
+  Settings, applied instantly.
 
 ---
 
 ## Requirements
 
-**In one line:** a Claude Code subscription, plus two free things every computer
-can have — Node.js and Chrome. That's the whole list.
-
-- **Claude Code, installed and logged in** — this is the only account you need.
-  Install it with the official method — `npm install -g @anthropic-ai/claude-code`,
-  or the platform installer at <https://docs.claude.com/en/docs/claude-code> —
-  then run `claude` once and complete login. The bridge reuses that login. **No
-  API key**, and usage is billed to your existing Claude account.
-- **Node.js 20 or newer** — free, one installer from <https://nodejs.org>. This
-  is a Node web app, so it is the one unavoidable tool.
-- **Google Chrome or Microsoft Edge**, in a **real browser window** — not an
-  embedded preview pane. Preview panes (including the one inside editors and
-  Claude Code) block microphone access, so the page loads and looks right but
-  never hears you. JARVIS also needs WebGL, which these browsers provide.
-- **Optional: an ElevenLabs API key** — a good add-on, not a requirement. It
-  gives a better voice and sharper transcription; the free tier is plenty for a
-  demo. Without it, everything runs on the browser's own speech.
-
-Run `npm run setup` after cloning and it checks all of this for you, in plain
-language.
+- **A Mac with Apple Silicon** (M1 or later). The local speech models use the GPU.
+- **Node.js 20+** — [nodejs.org](https://nodejs.org) or `brew install node`
+- **Homebrew** — [brew.sh](https://brew.sh)
+- **uv** (Python tool, for the local voice) — `brew install uv`
+- **A brain**, one of:
+  - **Claude Code**, installed and logged in (`npm i -g @anthropic-ai/claude-code`, then run `claude` once) — no API key needed, or
+  - **any Anthropic-compatible gateway** (for example an org-hosted Kimi), with its URL and token.
+- **Optional:** Spotify (free or Premium) for music; Safari for ZEN's hands.
 
 ---
 
-## Quick start
+## Setup
 
-First, install, then start it:
-
-```bash
-npm install
-npm start          # runs the brain and the face together
-```
-
-Then open the URL it prints (http://localhost:5173) in **Chrome**, click **INITIALISE**, and say **“Hey Jarvis”**.
-
-Prefer two terminals? Run them separately instead:
+### 1. Get the code
 
 ```bash
+git clone https://github.com/RoString36222/better-jarvis-string.git zen
+cd zen
 npm install
 ```
 
-Terminal 1 — the brain:
+### 2. Choose the brain
+
+ZEN reads its settings from `.kimi.env` (git-ignored — your keys never get
+committed). Start from the template:
 
 ```bash
-npm run bridge
+cp .kimi.env.example .kimi.env
 ```
 
-Terminal 2 — the face:
+- **Using Claude Code?** Leave the brain lines commented out. ZEN uses your
+  Claude login.
+- **Using a gateway?** Uncomment and fill in `ANTHROPIC_BASE_URL`,
+  `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_MODEL`, and keep
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`.
+
+### 3. Local hearing — Whisper (recommended)
+
+Works in every browser, including Brave and Opera, which block the browser's
+own speech recognition.
 
 ```bash
-npm run dev
+brew install whisper-cpp
+mkdir -p models
+curl -L -o models/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 ```
 
-Then open the app in a **real Chrome or Edge window**:
+The model is ~570 MB and stays in `models/` (git-ignored).
+
+### 4. Local voice — Kokoro (recommended)
 
 ```bash
-open http://localhost:5173
+uv venv .venv-tts --python 3.12
+uv pip install --python .venv-tts/bin/python "mlx-audio[server]" "misaki[en]" \
+  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 ```
 
-Click **INITIALISE**, allow the microphone when asked, and say **"Hey Jarvis"**.
+Without it ZEN falls back to the browser's voice, which sounds robotic.
 
-> It has to be a real browser window. Embedded preview panes block the
-> microphone, so JARVIS will look perfectly alive and simply never respond.
+### 5. Start ZEN
+
+```bash
+./start-kimi.sh
+```
+
+It starts the brain bridge, Whisper and the voice together, then serves ZEN at
+**http://localhost:5174**. Open that in **Safari or Chrome**, click once
+anywhere (browsers only allow sound after a click), and say **"Hey Zen"** — or
+type in the box at the bottom.
+
+`Ctrl-C` stops everything.
+
+### 6. The desktop app (optional)
+
+```bash
+npm --prefix desktop install
+./scripts/install-app.sh
+```
+
+This puts **ZEN.app** in Applications. Open it from Launchpad or Spotlight;
+it starts ZEN if it isn't running, and **⌥Space** shows or hides it from
+anywhere. Closing the window hides it; ⌘Q quits. The first time, allow the
+microphone.
 
 ---
 
-## How it works
+## Spotify
 
-JARVIS is two processes. The browser is the face and the voice; the bridge is
-the brain and the hands.
+ZEN never plays audio itself. **Spotify plays, hidden in the background, and
+ZEN is the remote**: the holographic player shows the album art, a seek bar,
+synced lyrics and recommendations, and controls Spotify from inside ZEN.
 
-```
-  ┌─ browser (the face) ───────────────┐        ┌─ bridge (the brain) ─────────────┐
-  │  "Hey Jarvis" wake word            │        │  Node · bridge/server.mjs        │
-  │  local VAD  →  speech to text      │   ws   │  Claude Agent SDK                │
-  │  reactor UI (Three.js + GLSL)      │◄─────► │   = Claude Code, headless        │
-  │  text to speech                    │  8787  │  spawns your MCP servers         │
-  │  heads-up display                  │        │  permission gate (decideTool)    │
-  └────────────────────────────────────┘        └──────────────────────────────────┘
-```
+### What works without any setup
 
-Everything you see and hear happens in the browser. The bridge is a single Node
-process (`bridge/server.mjs`) that runs the **Claude Agent SDK**
-(`@anthropic-ai/claude-agent-sdk`) — this spawns the real `claude` CLI as a child
-process, so **the brain literally is Claude Code, headless.** They talk over a
-WebSocket (plus a few HTTP endpoints) on `ws://localhost:8787`.
+As long as the Spotify desktop app is installed and you're logged in to it:
 
-**Why a bridge at all?** A browser tab cannot spawn the local stdio MCP servers —
-`higgsfield`, `elevenlabs`, `android`, `playwright`, `exa`, `serper`, and the
-rest. The bridge can. And because it is the Agent SDK, it authenticates off your
-existing Claude Code login: no API key, billed to that same Claude account.
+- "Play Spotify", "pause", "next song", "previous", "what's playing?"
+- the player, seek bar and controls, **synced lyrics**, and **Up next**
+  (songs like the one playing)
 
-**The model.** `claude-opus-5` at effort `medium` by default. Override with the
-`JARVIS_MODEL` and `JARVIS_EFFORT` environment variables. On startup the bridge
-prints its choice, e.g. `[jarvis] model claude-opus-5 · effort medium`.
+### Play songs by name, tap recommendations, and "For you"
 
-### The voice pipeline
+These need ZEN to search Spotify, which Spotify only allows for a registered
+app. It's free, takes two minutes, and does **not** need Premium.
 
-The loop is designed so that nothing silently dies and barge-in feels natural.
+1. **Create a Spotify app.** Go to
+   [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard),
+   log in with your Spotify account, and click **Create app**:
 
-- **Detection is local.** An energy-based voice-activity detector
-  (`src/lib/vad.ts`) decides when you are speaking. It is instant, cannot quietly
-  fail, and is what makes **barge-in** work — speak while JARVIS is talking and he
-  stops.
-- **Transcription has two tiers, chosen automatically at boot.** The browser asks
-  the bridge `/health` and picks the best available:
-  - **ElevenLabs key present** → ElevenLabs Scribe, via the bridge `/stt` endpoint.
-  - **Nothing configured** → the browser's own `SpeechRecognition` (Chrome/Edge),
-    guarded by a heartbeat so it recovers when Chrome throttles it.
-- **Speaking** uses the **ElevenLabs voice when a key is present**, and the
-  browser's `speechSynthesis` otherwise. If a cloud call fails it falls back to
-  the browser voice, and if the OS voice itself is broken it latches over to the
-  cloud voice.
+   | Field | Value |
+   |---|---|
+   | App name | `ZEN` |
+   | App description | `My voice assistant` |
+   | Redirect URIs | `http://127.0.0.1:8787/callback` → click **Add** |
+   | Which API/SDKs | tick **Web API** |
 
-So it works with no keys and auto-upgrades when a key appears — there is no flag
-to set. Capability detection lives in `src/lib/capabilities.ts`, which probes the
-bridge's `GET /health` (returning `{ ok, tts, stt }`, both tracking the
-ElevenLabs key) once at boot and picks the engines.
+   Tick the terms checkbox and click **Save**.
 
----
+2. **Copy the Client ID.** Open the app's **Settings** and copy the
+   **Client ID**. You don't need the client secret.
 
-## What JARVIS can do
+3. **Add it to ZEN.** In `.kimi.env`:
 
-Beyond answering, JARVIS reaches every MCP server in your Claude Code
-configuration, and can drive his own interface.
+   ```bash
+   export SPOTIFY_CLIENT_ID="paste-your-client-id"
+   ```
 
-### Your tools
+   Restart ZEN (`Ctrl-C`, then `./start-kimi.sh`).
 
-Every server in your `~/.claude.json` is handed to the SDK explicitly. Depending
-on what you have installed, that is roughly:
+4. **Connect once.** In the player, click **LOG IN WITH SPOTIFY** (or open
+   http://127.0.0.1:8787/spotify/login) and click **Agree**. The page says
+   *"ZEN is connected to Spotify"* and you can close it.
 
-- **Web & search** — `exa`, `serper`, `serpapi`
-- **Images & video** — `higgsfield`, `openrouter-image`, `palmier-pro`
-- **Voice** — `elevenlabs`
-- **Your phone** — `android`
-- **The browser** — `playwright`
+That's it. Now:
 
-A few things you can say:
+- **"Play Blinding Lights"** finds the track and plays it in the background.
+- **Tap any tile** under **Up next** or **For you** to play it.
+- **For you** fills with picks based on your top artists lately.
 
-- *"What's happening in AI this week?"*
-- *"Generate an image of the Mark VII suit."*
-- *"Take a screenshot of my phone."*
-- *"Open my GitHub notifications."*
+The login is stored in `~/.string/spotify.json` on your Mac only, and ZEN
+refreshes it by itself.
 
-> **Note on account connectors.** Servers you added through your **claude.ai
-> account** are not stored on disk, so the bridge cannot see them — it works from
-> the servers in `~/.claude.json` (about 14), not the claude.ai ones.
+### Spotify troubleshooting
 
-### JARVIS controls the interface
-
-He drives the UI through MCP tools the bridge exposes:
-
-- `ui_theme` — accent, background, per-phase colours
-- `ui_reactor` — colour, scale, intensity, spin, and style (`ring` | `sphere` | `wire`), visibility
-- `ui_orbit` — put images in orbit around the reactor
-- `ui_chrome` — show or hide rails, transcript, badges
-- `ui_effect` — `glitch` | `pulse` | `scan` | `shake` | `flash`
-- `ui_screen` — clear
-- `ui_reset` — back to defaults
-
-So *"make it red, hide the systems list, put that render in orbit"* is a spoken
-command.
-
-### The heads-up display
-
-JARVIS authors panels with a `display` tool against a fixed `.hud-*` design
-system. The browser sanitises the markup (DOMPurify, a class allowlist and a
-strict CSP) before rendering. Rich media works — images, `<video>`, and
-YouTube/Vimeo embeds. Remote images and video are fetched **server-side** through
-the bridge (`/img` and `/media`, both SSRF-guarded), so hotlink-blocked news
-thumbnails still appear and the page never beacons your IP to a host the model
-chose.
-
----
-
-## Controls
-
-| Key / phrase | Does |
+| Problem | Fix |
 |---|---|
-| **"Hey Jarvis"** | Wake him |
-| **Space** | Talk without the wake word |
-| Just speak | Interrupt him mid-sentence (barge-in) |
-| **V** | Cycle the browser voice |
-| **Escape** | Stand down |
-| **D** | Live diagnostics panel |
-| **T** | One-line audio self-test |
+| "INVALID_CLIENT: Invalid redirect URI" | The redirect must be exactly `http://127.0.0.1:8787/callback` — `127.0.0.1`, not `localhost`, no trailing slash. |
+| Still shows "Log in with Spotify" | Press ⌘⇧R in ZEN; the status refreshes on reload and when the window regains focus. |
+| "Play X" says it needs keys | `SPOTIFY_CLIENT_ID` isn't set, or ZEN wasn't restarted after adding it. |
+| Player doesn't appear | It appears while something is playing in the Spotify app. Start a song, or say "play Spotify". |
+| Spotify's window pops up | Update ZEN; it launches and hides Spotify in the background. |
 
 ---
 
-## The boot sequence
+## ZEN's hands in Safari
 
-Power-up plays a four-beat Iron Man start-up (`src/ui/Boot.tsx`): an
-"INITIATING SYSTEM" status bar with a segmented progress bar and boot log; then
-concentric reticle rings resolving into "J.A.R.V.I.S"; then a suit schematic;
-then the triangular arc reactor lighting up — with a start-up sound under it
-(`public/audio/boot-music.mp3`).
+ZEN can fill in forms and click things on the page in front of you — always
+asking first.
+
+**One-time setup** (Safari blocks this by default):
+
+1. **Safari → Settings… → Advanced** → tick **Show features for web developers**.
+2. **Settings → Developer** (or the **Develop** menu) → tick
+   **Allow JavaScript from Apple Events**.
+
+Then: *"Fill in the form in Safari: name ZEN, description My voice assistant."*
+Safari moves to the right half of the screen so you can watch. For every
+action, ZEN shows a card — **ALLOW**, **DENY** or **ALLOW NEXT 2 MIN** — and
+does nothing until you answer.
+
+Never done for you, however you ask: agreeing to terms, paying, ordering,
+deleting, and password fields. ZEN tells you those are your step.
+
+> Use ZEN.app (not a Safari tab) for these tasks: ZEN acts on whichever Safari
+> tab is in front.
 
 ---
 
-## Configuration
+## Things to say
 
-Everything is optional in bridge mode. Frontend settings live in `.env.local`
-(copy `.env.example`); bridge settings are environment variables.
-
-### Bridge
-
-| Variable | Default | Effect |
-|---|---|---|
-| `JARVIS_BRIDGE_PORT` | `8787` | Port for the WebSocket + HTTP endpoints |
-| `JARVIS_MODEL` | `claude-opus-5` | Model to run |
-| `JARVIS_EFFORT` | `medium` | Reasoning effort |
-| `JARVIS_ALLOW_WRITES` | off | `1` allows effectful tools (see below) |
-| `JARVIS_ALLOWED_ORIGINS` | local dev | Extra WebSocket origins to accept |
-| `JARVIS_ALLOW_NO_ORIGIN` | off | Accept connections with no `Origin` header |
-| `JARVIS_FILE_ROOTS` | — | Roots the `/file` endpoint may serve from |
-| `JARVIS_VOICE_ID` | — | ElevenLabs voice id |
-| `ELEVENLABS_API_KEY` | — | Optional; enables the ElevenLabs voice + Scribe |
-
-### Frontend (`.env.local`)
-
-| Variable | Effect |
+| You say | ZEN does |
 |---|---|
-| `VITE_BACKEND` | `bridge` (default) or `direct` |
-| `VITE_BRIDGE_URL` | Where to reach the bridge |
-| `VITE_TTS_ENGINE` | `system` or `kokoro` |
-| `VITE_KOKORO_VOICE` | Voice for the Kokoro engine |
-| `VITE_USE_ELEVENLABS` | Force the ElevenLabs voice on |
-| `VITE_ANTHROPIC_API_KEY` | Direct mode only |
+| "What's the weather today?" | Live weather (your home city by default) |
+| "What's 15% of 240?" · "Convert 10 km to miles" · "What time is it?" | Answers instantly, no model call |
+| "Research the VR headset market" | A wall of stats, charts, findings and sources |
+| "Tell me about the Taj Mahal" | Answers, and shows a picture |
+| "Play Night Changes" · "Pause" · "Next song" · "What's playing?" | Spotify, in the background |
+| "Open terminal" / "Open kitty" | A real shell inside ZEN |
+| "Open Slack" · "Volume down" · "Mute" | Opens allowlisted apps, controls volume |
+| "Remind me in 20 minutes to check the deploy" · "Ping me at 4" | Spoken reminder + macOS notification |
+| "Remember I live in Bengaluru" · "What do you remember?" · "Forget that" | Long-term memory |
+| "Stop" · "Wait" · "Zen, …" while it talks | Interrupts it |
 
-### Adding an ElevenLabs key
-
-You do not have to touch a flag. Either:
-
-- Set `ELEVENLABS_API_KEY` on the bridge before starting it, **or**
-- Add the key to your `elevenlabs` MCP server's env in `~/.claude.json` — the
-  bridge reads it from there too.
-
-Either way, `/health` starts reporting the capability, the browser picks it up on
-the next boot, and both the voice and transcription upgrade automatically.
+Keyboard: **Space** to talk without the wake word · **Esc** to stop ·
+**⌥Space** to summon the desktop app.
 
 ---
 
-## Enabling actions
+## Settings
 
-The tool gate starts **read-only**. Search, generation and lookups run freely;
-anything effectful — send, tap, delete, install, pay — is denied. Voice is a poor
-interface for a confirmation dialog, so the decision is made ahead of time in
-`decideTool()` in `bridge/server.mjs`, not at the moment of use. The bridge sets
-`settingSources: []`, which makes its own gate the only authority — filesystem
-settings and any global `bypassPermissions` cannot override it.
+Click **⚙** in the toolbar. Everything applies instantly and is saved on your Mac.
 
-To allow effectful tools (phone, browser driving, sending), run the bridge this
-way instead:
+- **Appearance** — 8 two-tone themes (Sapphire, Sapphire & Gold, Cyberpunk,
+  Aurora, Ember, Rose, Violet & Teal, Mono) or your own primary and secondary
+  colours; reactor size.
+- **Voice** — 9 Kokoro voices, British and American, with **▶ Preview**.
+- **Listening** — how long ZEN keeps listening after answering (0–20 s).
+- **Interface** — show or hide the brand, systems list, transcript,
+  suggestions and activity badge.
+- **Music** — recommendations in the player; lyrics open by default.
 
-```bash
-npm run bridge:writes
-```
+### Options in `.kimi.env`
 
-> Read `decideTool()` before you do. *"Hey Jarvis, clean up my downloads folder"*
-> means something rather different with writes enabled.
+| Variable | What it does |
+|---|---|
+| `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` | Use a gateway instead of your Claude login |
+| `SPOTIFY_CLIENT_ID` | Spotify search, play by name, recommendations ([Spotify](#spotify)) |
+| `SERPER_API_KEY` / `BRAVE_SEARCH_API_KEY` | Real web search for research (otherwise Wikipedia) |
+| `STRING_HOME_CITY` | Default city for weather (default Bengaluru) |
+| `ZEN_HOTKEY` | Desktop app hotkey (default `Alt+Space`) |
+
+On the command line:
+
+| Command | What it does |
+|---|---|
+| `JARVIS_MCP=gcp-grafana ./start-kimi.sh` | Also load your Claude Code MCP servers by name (`all` for every one). Adds monitoring tools and proactive alerts; answers get a little slower. |
+| `MODEL=… ./start-kimi.sh` | Use a different model for this run |
+
+---
+
+## Privacy and safety
+
+- **Runs on your Mac.** Hearing (Whisper) and voice (Kokoro) are local; your
+  audio never leaves the machine. Only your questions go to the model.
+- **Only reachable from your Mac.** The bridge listens on `127.0.0.1` and
+  only accepts ZEN's own pages.
+- **Read-only by default.** ZEN can't run commands or change files. Its Mac
+  actions are a fixed list (allowlisted apps, Spotify, volume, reminders);
+  Safari actions need your approval each time; the terminal is yours to type
+  in, not the model's.
+- **Your data stays local**, in `~/.string/`: `memory.json`,
+  `reminders.json`, `spotify.json`. Nothing there is in the repo.
+- **Keys** live in `.kimi.env`, which is git-ignored.
 
 ---
 
 ## Troubleshooting
 
-**I can't hear him, or he can't hear me.** Press **D** for the diagnostics panel
-— it states plainly whether he is hearing you and whether he is producing sound.
-Press **T** for a one-line audio self-test.
-
-**No voice at all.** You must be in **Chrome or Edge**, in a **real browser
-window** (not an embedded preview), and you must have **allowed the microphone**.
-
-**Bridge not reachable.** Check that `npm run bridge` is still running in its
-terminal, and that nothing else is holding port `8787`.
-
----
-
-## Security
-
-All of this lives in `bridge/server.mjs`:
-
-- The WebSocket accepts only local dev origins (add more with
-  `JARVIS_ALLOWED_ORIGINS`).
-- `/file`, `/img` and `/media` validate the scheme, confine to allowed roots,
-  resolve the real path, and refuse private and loopback addresses (SSRF guard).
-- The tool gate (`decideTool`) is default-deny for effectful MCP tools.
-- A strict CSP in `index.html`; model-authored panel HTML is sanitised.
+| Problem | Fix |
+|---|---|
+| ZEN doesn't hear you | Use Whisper (setup step 3). Brave and Opera block browser speech recognition; Safari needs Dictation turned on. Allow the microphone. |
+| No sound | Click once anywhere in ZEN — browsers hold sound until you interact. |
+| Robotic voice | The local voice isn't set up (step 4), or ZEN wasn't restarted after. |
+| "Bridge connection lost" | ZEN is restarting; it reconnects by itself. If it persists, run `./start-kimi.sh` again. |
+| Every answer fails | Check the gateway: `curl -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" $ANTHROPIC_BASE_URL/v1/models` should return 200. |
+| It answers itself / hears the TV | Lower the follow-up window in Settings → Listening, or use headphones. |
+| Safari hands say "blocked" | Turn on **Allow JavaScript from Apple Events** ([setup](#zens-hands-in-safari)). |
 
 ---
 
-## Credits & licence
+## Project layout
 
-MIT.
+```
+bridge/        Node bridge: the model session, tools, speech, Spotify, terminal
+  server.mjs     the bridge and its HTTP/WebSocket routes
+  mac.mjs        Mac actions: apps, Spotify, volume, reminders
+  music.mjs      recommendations, lyrics, Spotify login
+  browser.mjs    Safari hands (approve-every-action)
+  memory.mjs     long-term memory
+  search.mjs     web search and weather
+  zen_pty.py     the terminal's pseudo-terminal
+src/           the interface (React + Three.js)
+  ui/            reactor, player, terminal, settings, toolbar, panels
+  lib/           voice, speech, settings, instant answers
+desktop/       the Electron desktop app
+scripts/       install-app.sh and helpers
+start-kimi.sh  starts everything
+```
 
-The boot sound and any tracks in `public/audio/` ship with the project for the
-demo. If you go on to monetise something built on this, clearing the rights to
-that audio is your responsibility.
+---
+
+## Credits
+
+ZEN builds on **[adewaskar/jarvis](https://github.com/adewaskar/jarvis)** by
+Aditya Dewaskar (MIT) — the original holographic interface and Claude Code
+bridge. Its original README is preserved in
+[docs/UPSTREAM_README.md](docs/UPSTREAM_README.md). The Chrome speech fix comes
+from [erte-del/Jarvis](https://github.com/erte-del/Jarvis).
+
+Also used: [whisper.cpp](https://github.com/ggml-org/whisper.cpp),
+[Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) via
+[mlx-audio](https://github.com/Blaizzy/mlx-audio),
+[xterm.js](https://xtermjs.org), [LRCLIB](https://lrclib.net) lyrics,
+[Deezer API](https://developers.deezer.com) recommendations, and
+[Open-Meteo](https://open-meteo.com) weather.
+
+The audio in `public/audio/` is cleared for demo use only — see
+[public/audio/CREDITS.md](public/audio/CREDITS.md).
+
+MIT licence — see [LICENSE](LICENSE).
