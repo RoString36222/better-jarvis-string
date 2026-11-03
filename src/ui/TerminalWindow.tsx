@@ -94,13 +94,18 @@ export function TerminalWindow() {
   const terminalRun = useStore((s) => s.terminalRun)
   /** Bumped to start a fresh shell after the old one exited. */
   const [session, setSession] = useState(0)
-  /** Only the session ZEN opened starts the program; ↻ gives a plain shell. */
-  const [runSession, setRunSession] = useState(-1)
-  useEffect(() => {
-    if (terminalRun) setRunSession(session)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalRun])
-  const runFor = (n: number) => (terminalRun && n === runSession ? terminalRun.run : undefined)
+  /**
+   * The program ZEN asked for goes to the shell created for that request, read
+   * in the same render — an effect a beat later started the shell before it
+   * knew, so "open Claude Code" got a plain prompt. Used once: ↻ and the
+   * reconnect after a bridge restart give a plain shell.
+   */
+  const used = useRef<number | null>(null)
+  const run = terminalRun && used.current !== terminalRun.at ? terminalRun.run : undefined
+  const fresh = () => {
+    if (terminalRun) used.current = terminalRun.at
+    setSession((n) => n + 1)
+  }
   const [wide, setWide] = useState(false)
   /** Dragged size, remembered across sessions; null = the default half screen. */
   const [size, setSize] = useState<{ w: number; h: number } | null>(() => {
@@ -159,7 +164,7 @@ export function TerminalWindow() {
               <span className="tw-dot" /> TERMINAL · {(navigator.platform || 'mac').toLowerCase().includes('mac') ? 'zsh' : 'shell'}
             </span>
             <span className="tw-acts">
-              <button className="bl-btn" onClick={() => setSession((n) => n + 1)} title="New shell">
+              <button className="bl-btn" onClick={fresh} title="New shell">
                 ↻
               </button>
               {size && (
@@ -176,7 +181,7 @@ export function TerminalWindow() {
             </span>
           </header>
           <div className="tw-body">
-            <Shell key={`${session}|${terminalRun?.at ?? 0}`} run={runFor(session)} onEnded={() => setSession((n) => n + 1)} />
+            <Shell key={`${session}|${terminalRun?.at ?? 0}`} run={run} onEnded={fresh} />
           </div>
           <span className="bl-grip tw-grip" onPointerDown={onGrip} title="Drag to resize" />
         </motion.section>

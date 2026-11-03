@@ -270,10 +270,14 @@ export function macServer({ openTerminal } = {}) {
         },
         async ({ app, run }) => {
           if (openTerminal && TERMINALS.test(String(app ?? '').trim())) {
-            openTerminal(run)
+            const started = await openTerminal(run)
+            const name = run === 'claude' ? 'Claude Code' : run
+            if (run && !started) {
+              return fail(`The terminal opened, but ${name} did not start in it. Say so; the user can type \`${run === 'claude' ? 'claude' : run}\` themselves or ask again.`)
+            }
             return ok(
               run
-                ? `Opened a terminal inside ZEN and started ${run === 'claude' ? 'Claude Code' : run} in it. It is the user's to use from here.`
+                ? `Opened a terminal inside ZEN and ${name} is running in it. It is the user's to use from here.`
                 : 'Opened a terminal inside ZEN (left half of the screen).',
             )
           }

@@ -15,7 +15,6 @@ import { listenForClap } from './lib/clap'
 import * as camera from './lib/camera'
 import * as kokoro from './lib/kokoro'
 import { TTS_ENGINE, BRIDGE_HTTP_URL } from './config'
-import { forTool, attention } from './lib/fillers'
 import {
   ask,
   warm,
@@ -201,7 +200,6 @@ export default function App() {
 
     const turnId = newId()
     let started = false
-    let filled = false
 
     try {
       const { text } = await ask(said, history.current, {
@@ -232,13 +230,8 @@ export default function App() {
           store.getState().setActiveTool(name)
           sfx.play('tool')
           music.working(true)
-          // Say something the moment work starts — a tool can take ten seconds
-          // and silence that long reads as a crash. Once per turn only; a
-          // chain of five tools shouldn't produce five apologies.
-          if (!filled && !started) {
-            filled = true
-            spk.say(forTool(name))
-          }
+          // No spoken filler ("One moment, sir"): the activity badge says what
+          // he is doing, and he speaks only to answer.
         },
       })
 
@@ -312,14 +305,9 @@ export default function App() {
 
     store.getState().setPhase('waking')
 
-    // Answer to his name. Deliberately NOT awaited any more: the microphone is
-    // already open and the echo filter knows his voice, so the user can talk
-    // straight over the greeting instead of waiting it out.
-    const greeting = createSpeaker()
-    speaker.current = greeting
-    greeting.say(attention())
-    void greeting.end()
-
+    // No spoken "At your service": it talked over the command that usually
+    // follows straight away. The reactor and status show he is listening; he
+    // speaks only to answer.
     listen(AWAIT_SPEECH_MS)
   }
 
@@ -467,10 +455,8 @@ export default function App() {
     // the first gesture, and awaiting it held the whole power-up at the
     // INITIALISE screen. Sound simply starts on the first click or key.
     void sfx.unlockAudio()
-    // The score. Must be started from inside this click handler for the same
-    // reason as the rest of the audio.
-    music.enable()
-    music.startAmbient()
+    // No background score: it competed with the user's own music and with
+    // the microphone. (music.enable() would bring it back.)
 
     s.setPhase('boot')
 
@@ -685,17 +671,8 @@ export default function App() {
     })
 
     store.getState().setPhase('dormant')
-    // The first visit of the morning opens with a briefing. Once a day, and
-    // only before noon; the BRIEF button asks for one any time.
-    try {
-      const today = new Date().toDateString()
-      if (new Date().getHours() < 12 && localStorage.getItem('string.briefed') !== today) {
-        localStorage.setItem('string.briefed', today)
-        setTimeout(() => window.dispatchEvent(new CustomEvent('string:brief')), 1500)
-      }
-    } catch {
-      /* storage blocked: no automatic briefing */
-    }
+    // No automatic morning briefing: ZEN speaks only when asked. BRIEF in the
+    // toolbar gives one on demand.
   }
 
   // -- clap to start --------------------------------------------------------

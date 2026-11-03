@@ -1701,7 +1701,21 @@ wss.on('connection', (socket, req) => {
         jarvis_term: claudeCodeServer(ask),
         jarvis_search: searchServer(),
         jarvis_memory: memoryServer(),
-        jarvis_mac: macServer({ openTerminal: (run) => send({ type: 'ui', op: 'terminal', args: { open: true, run } }) }),
+        jarvis_mac: macServer({
+          // Resolves once the bridge sees that program actually running in a
+          // terminal session, so ZEN reports what happened, not what it asked.
+          openTerminal: async (run) => {
+            const asked = Date.now()
+            send({ type: 'ui', op: 'terminal', args: { open: true, run } })
+            if (!run) return true
+            const want = TERMINAL_LAUNCH[run]
+            for (let i = 0; i < 20; i++) {
+              if ([...terminals].some((t) => t.launch === want && t.at >= asked - 500)) return true
+              await new Promise((r) => setTimeout(r, 200))
+            }
+            return false
+          },
+        }),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

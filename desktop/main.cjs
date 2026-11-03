@@ -44,7 +44,11 @@ async function ensureServer() {
 function summon() {
   if (!win) return
   if (win.isVisible() && win.isFocused()) {
-    win.hide()
+    // Out of full screen first, so hiding never leaves an empty space behind.
+    if (win.isFullScreen()) {
+      win.once('leave-full-screen', () => win?.hide())
+      win.setFullScreen(false)
+    } else win.hide()
     return
   }
   win.show()
@@ -85,12 +89,11 @@ app.whenReady().then(async () => {
   win.on('focus', () => {
     if (process.platform === 'darwin') app.dock.setBadge('')
   })
-  // Closing hides: ZEN stays one hotkey away. Quit with ⌘Q.
-  win.on('close', (e) => {
-    if (!app.isQuitting) {
-      e.preventDefault()
-      win.hide()
-    }
+  // The red ✕ quits. It used to hide the window instead, and in full screen
+  // macOS hid the window but left its full-screen space behind: a blank screen.
+  // Hiding is ⌥Space or ⌘H.
+  win.on('closed', () => {
+    win = null
   })
   await win.loadURL(URL)
   // Asked after the window is up, not before: the macOS prompt waits for the
@@ -102,6 +105,7 @@ app.whenReady().then(async () => {
   }
 })
 
+app.on('window-all-closed', () => app.quit())
 app.on('activate', () => win?.show())
 app.on('before-quit', () => {
   app.isQuitting = true
