@@ -2070,13 +2070,14 @@ kbd {
 .askbox-input {
   flex: 1;
   min-width: 0;
-  padding: 7px 12px;
+  padding: 9px 13px;
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   letter-spacing: 0.04em;
   color: #f0f6ff;
-  background: rgba(2, 6, 18, 0.75);
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: rgba(2, 6, 18, 0.82);
+  border: 1.5px solid color-mix(in srgb, var(--accent) 75%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 15%, transparent) inset, 0 0 16px -6px var(--accent);
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
@@ -2460,3 +2461,37 @@ kbd {
 .tw-term .xterm, .tw-term .xterm-viewport { background: transparent !important }
 .tw-note { position: absolute; top: 12px; left: 14px; font: 11px 'JetBrains Mono', monospace; opacity: 0.6 }
 @media (max-width: 1100px) { .tw, .tw-wide { width: calc(100vw - 32px); left: 16px } }
+
+/* -------- approval card: ZEN asking before it acts -------- */
+.ap {
+  position: fixed;
+  left: 50%;
+  top: 70px;
+  z-index: 20;
+  width: min(520px, calc(100vw - 32px));
+  padding: 16px 18px 14px;
+  pointer-events: auto;
+  font-family: 'JetBrains Mono', monospace;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 16%, rgba(2, 6, 18, 0.94)), rgba(2, 6, 18, 0.96));
+  border: 1px solid var(--accent);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 34px -10px var(--accent);
+  backdrop-filter: blur(14px);
+}
+.ap-kicker { font-size: 9px; letter-spacing: 0.22em; color: var(--accent) }
+.ap-text { margin: 8px 0 14px; font: 600 15px/1.4 'Chakra Petch', sans-serif; color: #f0f6ff; text-transform: none; letter-spacing: 0.01em }
+.ap-acts { display: flex; justify-content: flex-end; gap: 8px }
+.ap-deny { color: #ff8fa0; border-color: rgba(255, 107, 129, 0.5) }
+
+/* the ASK button: as outlined as the box it sends, even before anything is typed */
+.askbox .tb-btn {
+  padding: 0 16px;
+  font-size: 11px;
+  border-width: 1.5px;
+  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
+  box-shadow: 0 0 16px -6px var(--accent);
+}
+.askbox .tb-btn:disabled { opacity: 0.7; color: color-mix(in srgb, var(--accent) 80%, #fff) }
+.askbox .tb-btn:not(:disabled) { background: color-mix(in srgb, var(--accent) 30%, rgba(2, 6, 18, 0.8)); color: #fff }
+
+/* the terminal's resize grip */
+.tw-grip { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 2 }

@@ -90,6 +90,12 @@ export function watchBlades(fn: (blade: Blade) => void) {
   onBlade = fn
 }
 
+/** An action ZEN wants to take on the user's behalf; resolves true to allow it. */
+let onApprove: ((text: string) => Promise<boolean>) | null = null
+export function watchApprove(fn: (text: string) => Promise<boolean>) {
+  onApprove = fn
+}
+
 /** Something STRING noticed on its own (proactive mode), to be said aloud. */
 let onNotify: ((text: string) => void) | null = null
 export function watchNotify(fn: (text: string) => void) {
@@ -211,6 +217,15 @@ function dispatch(ws: WebSocket) {
           .then(reply)
           .catch((err) => reply({ error: String(err?.message ?? err) }))
       }
+    } else if (msg.type === 'approve' && msg.id) {
+      // ZEN asking before it acts (typing, clicking). Always answered: the
+      // bridge holds the tool call open until it hears back.
+      const id = msg.id
+      const answer = (ok: boolean) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'reply', id, ok }))
+      }
+      if (!onApprove) answer(false)
+      else onApprove(String(msg.text ?? '')).then(answer).catch(() => answer(false))
     } else if (msg.type === 'ui' && msg.op) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.

@@ -7,6 +7,7 @@ import { Toolbar, AskBox } from './Toolbar'
 import { ArcReactor } from './ArcReactor'
 import { NowPlaying } from './NowPlaying'
 import { TerminalWindow } from './TerminalWindow'
+import { Approval } from './Approval'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
@@ -163,6 +164,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   jarvis_search: 'search · weather',
   jarvis_memory: 'memory',
   jarvis_mac: 'mac · spotify · reminders',
+  jarvis_hands: 'hands · safari',
 }
 const systemLabel = (name: string) => SYSTEM_LABELS[name] ?? name
 
@@ -206,6 +208,7 @@ export function Hud() {
       <AskBox />
       <NowPlaying />
       <TerminalWindow />
+      <Approval />
 
       <Corner at="tl" />
       <Corner at="tr" />

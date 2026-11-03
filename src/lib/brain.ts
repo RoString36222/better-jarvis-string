@@ -134,3 +134,8 @@ export function watchConnection(
 export function connectedLabels(): string[] {
   return usingBridge ? bridge.bridgeServers() : direct.connectedLabels()
 }
+
+/** ZEN asking permission before it acts. Bridge only. */
+export function watchApprove(fn: (text: string) => Promise<boolean>): void {
+  if (usingBridge) bridge.watchApprove(fn)
+}

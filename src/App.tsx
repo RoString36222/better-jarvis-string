@@ -23,6 +23,7 @@ import {
   watchPanels,
   watchBlades,
   watchNotify,
+  watchApprove,
   watchCapture,
   watchUi,
   watchConnection,
@@ -459,6 +460,25 @@ export default function App() {
     watchServers((servers) => store.getState().setConnected(servers))
     watchPanels((panel) => store.getState().pushPanel(panel))
     watchBlades((blade) => store.getState().pushBlade(blade))
+    // Before ZEN types or clicks anywhere: one card, Allow or Deny. A
+    // previous answer never carries over to a new action, except inside an
+    // explicit "Allow next 2 min" window.
+    watchApprove(
+      (text) =>
+        new Promise<boolean>((resolve) => {
+          const st = store.getState()
+          if (Date.now() < st.allowUntil) return resolve(true)
+          st.approval?.resolve(false)
+          sfx.play('tool')
+          st.setApproval({
+            text,
+            resolve: (ok) => {
+              store.getState().setApproval(null)
+              resolve(ok)
+            },
+          })
+        }),
+    )
     // Proactive alerts: spoken only while nothing else is going on, so an
     // alert never talks over an answer. A missed one stays in the transcript.
     watchNotify((text) => {

@@ -262,6 +262,10 @@ type State = {
   bladeHistory: Blade[]
   /** ZEN's terminal window (left half). */
   terminalOpen: boolean
+  /** An action waiting for the user's Allow / Deny. */
+  approval: { text: string; resolve: (ok: boolean) => void } | null
+  /** Until when every action is allowed without asking ("Allow next 2 min"). */
+  allowUntil: number
   /** JARVIS's control over his own appearance. UI_DEFAULTS == the stock look. */
   ui: UiState
 
@@ -280,6 +284,8 @@ type State = {
   /** CLEAR VIEW: closes everything, sticky blades included. */
   closeAllBlades: () => void
   setTerminalOpen: (open: boolean) => void
+  setApproval: (a: { text: string; resolve: (ok: boolean) => void } | null) => void
+  setAllowUntil: (t: number) => void
   setPhase: (p: Phase) => void
   setLevel: (l: number) => void
   setCaption: (c: string) => void
@@ -316,6 +322,8 @@ export const useStore = create<State>((set) => ({
   bladeLayout: 'auto',
   bladeHistory: [],
   terminalOpen: false,
+  approval: null,
+  allowUntil: 0,
   bootNote: '',
   ui: defaultUi(),
 
@@ -368,6 +376,8 @@ export const useStore = create<State>((set) => ({
   setBladeLayout: (bladeLayout) => set({ bladeLayout }),
   closeAllBlades: () => set({ blades: [], focusedBlade: null, expandedBlade: null }),
   setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
+  setApproval: (approval) => set({ approval }),
+  setAllowUntil: (allowUntil) => set({ allowUntil }),
   // Same contract as panels: 'turn' blades go when the user speaks again,
   // 'sticky' ones stay until something replaces them.
   clearBlades: () =>

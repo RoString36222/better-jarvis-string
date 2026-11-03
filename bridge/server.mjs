@@ -24,6 +24,7 @@ import { visionServer } from './vision.mjs'
 import { searchServer, searchSource } from './search.mjs'
 import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
 import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount, playUri, spotifyInBackground } from './mac.mjs'
+import { browserServer } from './browser.mjs'
 import { recommendations, lyrics, spotifyStatus, loginUrl, finishLogin, searchTrack, canSearch } from './music.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -369,6 +370,10 @@ function decideTool(name, input) {
     // app, Spotify, volume, reminders) with no shell behind them — see mac.mjs.
     if (server === 'jarvis_mac') return true
 
+    // Safari hands: reading is free, and every type/click/open waits for the
+    // user's Allow in ZEN (browser.mjs) — that card is the gate, not this.
+    if (server === 'jarvis_hands') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -407,6 +412,10 @@ function describeTool(name, input = {}) {
   if (tool === 'web_search' || name === 'WebSearch') return `Searching “${cut(input.query ?? '')}”…`
   if (name === 'WebFetch') return `Reading ${host(input.url)}…`
   if (tool === 'remember') return 'Remembering that…'
+  if (tool === 'safari_page') return 'Reading the page in Safari…'
+  if (tool === 'safari_type') return 'Typing in Safari (waiting for your OK)…'
+  if (tool === 'safari_click') return 'Clicking in Safari (waiting for your OK)…'
+  if (tool === 'safari_open') return 'Opening a page in Safari…'
   if (tool === 'open_app') return `Opening ${input.app ?? 'the app'}…`
   if (tool === 'play_song') return `Finding “${cut(input.query ?? '', 36)}” on Spotify…`
   if (tool === 'spotify') return 'Controlling Spotify…'
@@ -1575,6 +1584,7 @@ wss.on('connection', (socket, req) => {
         jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
+        jarvis_hands: browserServer(ask),
         jarvis_search: searchServer(),
         jarvis_memory: memoryServer(),
         jarvis_mac: macServer({ openTerminal: () => send({ type: 'ui', op: 'terminal', args: { open: true } }) }),
