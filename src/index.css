@@ -257,7 +257,7 @@ body::after {
 .log {
   position: absolute;
   left: 50%;
-  bottom: 132px;
+  bottom: 154px;
   transform: translateX(-50%);
   width: min(760px, 68vw);
   display: flex;
@@ -295,7 +295,7 @@ body::after {
 .caption {
   position: absolute;
   left: 50%;
-  bottom: 88px;
+  bottom: 110px;
   transform: translateX(-50%);
   font-size: 16px;
   text-transform: none;
@@ -309,7 +309,7 @@ body::after {
 .error {
   position: absolute;
   left: 50%;
-  bottom: 52px;
+  bottom: 74px;
   transform: translateX(-50%);
   color: #ff6b6b;
   font-size: 10px;
@@ -321,7 +321,7 @@ body::after {
 
 .hud-bottom {
   position: absolute;
-  bottom: 44px;
+  bottom: 66px;
   left: 0;
   right: 0;
   text-align: center;
@@ -373,7 +373,7 @@ kbd {
 .panels-wide {
   left: 0;
   right: 0;
-  bottom: 132px;
+  bottom: 154px;
   align-items: center;
   justify-content: flex-end;
 }
@@ -774,7 +774,7 @@ kbd {
 .suggest {
   position: absolute;
   left: 50%;
-  bottom: 96px;
+  bottom: 118px;
   transform: translateX(-50%);
   display: flex;
   align-items: baseline;
