@@ -1148,6 +1148,8 @@ const handleRequest = async (req, res) => {
         let text = String(out.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim()
         // Whisper's other tell: on noise it invents a stock phrase from its
         // training data (YouTube outros). Alone, these are never a request.
+        // Sound effects Whisper writes out — *clap*, ♪, (music) — are not words.
+        text = text.replace(/\*[^*]{1,30}\*|[♪♫]+/g, ' ').replace(/\s+/g, ' ').trim()
         if (WHISPER_PHANTOMS.test(text)) text = ''
         // ...and its repetition loop on noise: one phrase three times running.
         if (/(\b[\w' ]{3,40}?[.!?,]?)\s+\1\s+\1/i.test(text)) text = ''

@@ -54,6 +54,46 @@ function resolveApp(name) {
 const SPOTIFY = (cmd) => `tell application "Spotify" to ${cmd}`
 
 /**
+ * Spotify running but out of sight. `open -gj` launches it in the background
+ * and hidden, so "play" never pulls its window over ZEN; the player in ZEN is
+ * the interface.
+ */
+async function spotifyInBackground() {
+  const running = await run('application "Spotify" is running').catch(() => 'false')
+  if (running === 'true') return
+  await new Promise((resolve) => execFile('open', ['-gj', '-a', 'Spotify'], () => resolve()))
+  for (let i = 0; i < 40; i++) {
+    if ((await run('application "Spotify" is running').catch(() => 'false')) === 'true') break
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  // Freshly launched, it needs a moment before it accepts play commands.
+  await new Promise((r) => setTimeout(r, 1500))
+}
+
+/** Put Spotify's window away again; loading a track brings it forward. */
+const hideSpotify = () =>
+  run('tell application "System Events" to set visible of process "Spotify" to false').catch(() => {})
+
+const isPlaying = async () =>
+  (await run('tell application "Spotify" to return (player state as string)').catch(() => '')) === 'playing'
+
+/** What "play some music" starts when nothing is queued. Public, works on free accounts. */
+const DEFAULT_PLAYLIST = process.env.ZEN_DEFAULT_PLAYLIST || 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M'
+
+/**
+ * Starts a track or playlist and makes sure it is actually playing. Spotify
+ * 1.3 loads a URI paused and pops its window, so: load, play, hide, check.
+ */
+async function playUri(uri) {
+  await run('on run argv\ntell application "Spotify" to play track (item 1 of argv)\nend run', [uri])
+  await new Promise((r) => setTimeout(r, 700))
+  if (!(await isPlaying())) await run(SPOTIFY('play')).catch(() => {})
+  await hideSpotify()
+  await new Promise((r) => setTimeout(r, 800))
+  return isPlaying()
+}
+
+/**
  * Finds a track's URI with Spotify's search API (client-credentials: no user
  * login, just a free developer app's id and secret). Without them, null.
  */
@@ -87,14 +127,15 @@ export async function spotifyState() {
   if (!resolveApp('Spotify')) return null
   const running = await run('application "Spotify" is running').catch(() => 'false')
   if (running !== 'true') return null
-  const out = await run(
-    SPOTIFY(`
+  // A full tell block: the one-line "tell … to" form takes one statement, and
+  // with several it failed every time — which read as "stopped".
+  const out = await run(`tell application "Spotify"
       if player state is stopped then return "stopped"
       set t to current track
-      return (player state as string) & "\t" & (name of t) & "\t" & (artist of t) & "\t" & (album of t) & "\t" & (artwork url of t) & "\t" & (duration of t) & "\t" & (player position)`),
-  ).catch(() => 'stopped')
+      return (player state as string) & "|||" & (name of t) & "|||" & (artist of t) & "|||" & (album of t) & "|||" & (artwork url of t) & "|||" & (duration of t) & "|||" & (player position)
+    end tell`).catch(() => 'stopped')
   if (out === 'stopped') return { state: 'stopped' }
-  const [state, title, artist, album, art, durationMs, position] = out.split('\t')
+  const [state, title, artist, album, art, durationMs, position] = out.split('|||')
   return {
     state,
     title,
@@ -204,7 +245,9 @@ export function macServer() {
       ),
       tool(
         'spotify',
-        'Control Spotify: play, pause, next, previous, or what is playing now.',
+        'Control Spotify in the background (it is launched hidden if needed, never brought ' +
+          'to the front; ZEN shows its own player): play/resume, pause, next, previous, or what is playing now. ' +
+          '"Play Spotify" or "play some music" with no song named = play.',
         { action: z.enum(['play', 'pause', 'toggle', 'next', 'previous', 'now_playing']) },
         async ({ action }) => {
           if (!resolveApp('Spotify')) return fail('Spotify is not installed.')
@@ -215,7 +258,17 @@ export function macServer() {
             return ok(out === 'nothing' ? 'Nothing is playing.' : `Playing ${out}.`)
           }
           const cmd = { play: 'play', pause: 'pause', toggle: 'playpause', next: 'next track', previous: 'previous track' }[action]
+          if (action !== 'pause') await spotifyInBackground()
           await run(SPOTIFY(cmd))
+          if (action === 'play' || action === 'toggle') {
+            await new Promise((r) => setTimeout(r, 900))
+            if (action === 'play' && !(await isPlaying())) {
+              // Nothing queued to resume: start something rather than nothing.
+              if (!(await playUri(DEFAULT_PLAYLIST))) return fail('Spotify would not start playing.')
+              return ok('Nothing was queued, so I started Today\'s Top Hits. The player is on screen.')
+            }
+            await hideSpotify()
+          }
           return ok(`Done: ${action}.`)
         },
       ),
@@ -227,19 +280,20 @@ export function macServer() {
           if (!resolveApp('Spotify')) return fail('Spotify is not installed.')
           const q = String(query ?? '').trim()
           if (!q) return fail('Nothing to play.')
-          const track = await spotifyTrack(q).catch(() => null)
-          if (track) {
-            await run('on run argv\ntell application "Spotify" to play track (item 1 of argv)\nend run', [track.uri])
-            return ok(`Playing ${track.name} by ${track.artist}.`)
+          if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+            // Never fall back to opening Spotify's window: the user wants the
+            // music in the background and the player in ZEN, not a jump to the app.
+            return fail(
+              'Playing a specific song needs the Spotify keys (SPOTIFY_CLIENT_ID and ' +
+                'SPOTIFY_CLIENT_SECRET in .kimi.env), which are not set. Say so briefly. ' +
+                'Resume, pause and next still work.',
+            )
           }
-          // No search credentials: open Spotify's own search for it.
-          await run('on run argv\ntell application "Spotify"\nactivate\nopen location (item 1 of argv)\nend tell\nend run', [
-            `spotify:search:${q}`,
-          ])
-          return ok(
-            `Opened Spotify's search for "${q}" — the user presses play on the result. ` +
-              '(Automatic play needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.)',
-          )
+          const track = await spotifyTrack(q).catch(() => null)
+          if (!track) return fail(`Nothing on Spotify matched "${q}".`)
+          await spotifyInBackground()
+          if (!(await playUri(track.uri))) return fail(`Found ${track.name} but Spotify would not start it.`)
+          return ok(`Playing ${track.name} by ${track.artist}. The player is on screen.`)
         },
       ),
       tool(
