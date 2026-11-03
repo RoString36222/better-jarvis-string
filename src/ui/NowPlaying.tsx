@@ -336,8 +336,20 @@ function Recs({ media }: { media: Media }) {
       .then((r) => r.json())
       .then(setLogin)
       .catch(() => {})
+  // Re-checked on every track and whenever the window comes back, not just
+  // once: a login finished in another tab has to clear the button here too.
   useEffect(() => {
     void refreshLogin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  useEffect(() => {
+    const again = () => void refreshLogin()
+    window.addEventListener('focus', again)
+    document.addEventListener('visibilitychange', again)
+    return () => {
+      window.removeEventListener('focus', again)
+      document.removeEventListener('visibilitychange', again)
+    }
   }, [])
 
   const play = async (r: Rec) => {
