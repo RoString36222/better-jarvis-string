@@ -38,3 +38,7 @@ models/
 # Temporary audio whisper-server writes while converting (your voice — never commit)
 *.wav
 whisper-server-*
+
+# Python bytecode
+__pycache__/
+*.pyc
