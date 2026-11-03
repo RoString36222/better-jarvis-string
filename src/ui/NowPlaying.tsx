@@ -149,7 +149,10 @@ export function NowPlaying() {
           transition={{ type: 'spring', stiffness: 260, damping: 28 }}
         >
           {showLyrics && <Lyrics media={media} position={shown} />}
-          <Recs media={media} />
+          <div className="np-side">
+            <Recs media={media} />
+            <ForYou />
+          </div>
           <div className={`np${playing ? ' np-playing' : ''}`}>
           <span className="pk pk-tl" />
           <span className="pk pk-tr" />
@@ -306,34 +309,134 @@ function Lyrics({ media, position }: { media: Media; position: number }) {
 
 type Rec = { title: string; artist: string; art: string | null }
 
-/**
- * Up next: songs in the orbit of what is playing (Deezer's artist radio).
- * Tapping one plays it in Spotify, in the background — which needs the
- * Spotify login, offered right here when it is missing.
- */
-function Recs({ media }: { media: Media }) {
-  const [recs, setRecs] = useState<Rec[]>([])
-  const [login, setLogin] = useState<{ configured: boolean; loggedIn: boolean } | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [note, setNote] = useState('')
-  const key = `${media.title}|${media.artist}`
-  const [collapsed, setCollapsed] = useState(() => {
+/** Collapsed-or-not, remembered per panel. */
+function useCollapsed(key: string): [boolean, () => void] {
+  const [c, setC] = useState(() => {
     try {
-      return localStorage.getItem('zen.upnext.collapsed') === '1'
+      return localStorage.getItem(key) === '1'
     } catch {
       return false
     }
   })
   const toggle = () =>
-    setCollapsed((c) => {
+    setC((v) => {
       try {
-        localStorage.setItem('zen.upnext.collapsed', c ? '0' : '1')
+        localStorage.setItem(key, v ? '0' : '1')
       } catch {
         /* storage blocked */
       }
-      return !c
+      return !v
     })
+  return [c, toggle]
+}
 
+/** The login state, re-read on focus — a login in another tab must show here. */
+function useSpotifyLogin() {
+  const [login, setLogin] = useState<{ configured: boolean; loggedIn: boolean } | null>(null)
+  const refresh = () =>
+    fetch(`${BRIDGE_HTTP_URL}/spotify/status`)
+      .then((r) => r.json())
+      .then(setLogin)
+      .catch(() => {})
+  useEffect(() => {
+    void refresh()
+    const again = () => void refresh()
+    window.addEventListener('focus', again)
+    document.addEventListener('visibilitychange', again)
+    return () => {
+      window.removeEventListener('focus', again)
+      document.removeEventListener('visibilitychange', again)
+    }
+  }, [])
+  return { login, refresh }
+}
+
+/**
+ * A collapsible list of songs; tapping one plays it in Spotify in the
+ * background (needs the Spotify login, offered here when missing).
+ */
+function PickPanel({ title, tracks, storageKey }: { title: string; tracks: Rec[]; storageKey: string }) {
+  const [collapsed, toggle] = useCollapsed(storageKey)
+  const { login, refresh } = useSpotifyLogin()
+  const [busy, setBusy] = useState<string | null>(null)
+  const [note, setNote] = useState('')
+
+  const play = async (r: Rec) => {
+    setBusy(r.title)
+    setNote('')
+    try {
+      const res = await fetch(`${BRIDGE_HTTP_URL}/music/play`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: r.title, artist: r.artist }),
+      })
+      if (res.status === 409) {
+        await refresh()
+        setNote('Log in with Spotify to play picks.')
+      } else if (!res.ok) {
+        setNote(`Couldn't find “${r.title}” on Spotify.`)
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const startLogin = () => {
+    window.open(`${BRIDGE_HTTP_URL}/spotify/login`, '_blank', 'width=520,height=720')
+    let n = 0
+    const t = setInterval(() => {
+      void refresh()
+      if (++n > 40) clearInterval(t)
+    }, 3000)
+  }
+
+  if (!tracks.length) return null
+  return (
+    <div className={`np-panel np-recs${collapsed ? ' np-collapsed' : ''}`}>
+      <button className="np-panel-head np-collapse" onClick={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show' : 'Hide'}>
+        <span>{title}</span>
+        <span className="np-chev">{collapsed ? '▸' : '▾'}</span>
+      </button>
+      {!collapsed && (
+        <>
+          <div className="np-recs-list">
+            {tracks.map((r) => (
+              <button key={`${r.title}|${r.artist}`} className="np-rec" onClick={() => void play(r)} disabled={busy !== null}>
+                {r.art ? (
+                  <img src={`${BRIDGE_HTTP_URL}/img?url=${encodeURIComponent(r.art)}`} alt="" />
+                ) : (
+                  <span className="np-rec-noart">♪</span>
+                )}
+                <span className="np-rec-meta">
+                  <span className="np-rec-title">{r.title}</span>
+                  <span className="np-rec-artist">{r.artist}</span>
+                </span>
+                <span className="np-rec-play">{busy === r.title ? '…' : '▶'}</span>
+              </button>
+            ))}
+          </div>
+          {login && !login.loggedIn && (
+            <div className="np-login">
+              {login.configured ? (
+                <button className="tb-btn" onClick={startLogin}>
+                  LOG IN WITH SPOTIFY
+                </button>
+              ) : (
+                <span className="np-dim">Add SPOTIFY_CLIENT_ID to .kimi.env to play picks</span>
+              )}
+            </div>
+          )}
+          {note && <div className="np-note">{note}</div>}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Up next: songs in the orbit of what is playing (Deezer artist radio). */
+function Recs({ media }: { media: Media }) {
+  const [recs, setRecs] = useState<Rec[]>([])
+  const key = `${media.title}|${media.artist}`
   useEffect(() => {
     let alive = true
     const q = new URLSearchParams({ artist: media.artist ?? '', title: media.title ?? '' })
@@ -346,97 +449,38 @@ function Recs({ media }: { media: Media }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
+  return (
+    <PickPanel
+      title={`UP NEXT · LIKE ${String(media.artist ?? '').toUpperCase()}`}
+      tracks={recs}
+      storageKey="zen.upnext.collapsed"
+    />
+  )
+}
 
-  const refreshLogin = () =>
-    fetch(`${BRIDGE_HTTP_URL}/spotify/status`)
-      .then((r) => r.json())
-      .then(setLogin)
-      .catch(() => {})
-  // Re-checked on every track and whenever the window comes back, not just
-  // once: a login finished in another tab has to clear the button here too.
+/** For you: from the user's own top artists on Spotify lately. */
+function ForYou() {
+  const [data, setData] = useState<{ tracks: Rec[]; basedOn?: string[] }>({ tracks: [] })
   useEffect(() => {
-    void refreshLogin()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  useEffect(() => {
-    const again = () => void refreshLogin()
-    window.addEventListener('focus', again)
-    document.addEventListener('visibilitychange', again)
+    let alive = true
+    const load = () =>
+      fetch(`${BRIDGE_HTTP_URL}/music/foryou`)
+        .then((r) => (r.ok ? r.json() : { tracks: [] }))
+        .then((d) => alive && setData({ tracks: d.tracks ?? [], basedOn: d.basedOn }))
+        .catch(() => {})
+    void load()
+    const t = setInterval(load, 30 * 60_000)
     return () => {
-      window.removeEventListener('focus', again)
-      document.removeEventListener('visibilitychange', again)
+      alive = false
+      clearInterval(t)
     }
   }, [])
-
-  const play = async (r: Rec) => {
-    setBusy(r.title)
-    setNote('')
-    try {
-      const res = await fetch(`${BRIDGE_HTTP_URL}/music/play`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title: r.title, artist: r.artist }),
-      })
-      if (res.status === 409) {
-        await refreshLogin()
-        setNote('Log in with Spotify to play picks.')
-      } else if (!res.ok) {
-        setNote(`Couldn't find “${r.title}” on Spotify.`)
-      }
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const startLogin = () => {
-    window.open(`${BRIDGE_HTTP_URL}/spotify/login`, '_blank', 'width=520,height=720')
-    // Pick the new login up when it lands, for the next two minutes.
-    let n = 0
-    const t = setInterval(() => {
-      void refreshLogin()
-      if (++n > 40) clearInterval(t)
-    }, 3000)
-  }
-
-  if (!recs.length) return null
+  const from = data.basedOn?.slice(0, 2).join(', ')
   return (
-    <div className={`np-panel np-recs${collapsed ? ' np-collapsed' : ''}`}>
-      <button className="np-panel-head np-collapse" onClick={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show' : 'Hide'}>
-        <span>UP NEXT · LIKE {String(media.artist ?? '').toUpperCase()}</span>
-        <span className="np-chev">{collapsed ? '▸' : '▾'}</span>
-      </button>
-      {!collapsed && (
-      <>
-      <div className="np-recs-list">
-        {recs.map((r) => (
-          <button key={`${r.title}|${r.artist}`} className="np-rec" onClick={() => void play(r)} disabled={busy !== null}>
-            {r.art ? (
-              <img src={`${BRIDGE_HTTP_URL}/img?url=${encodeURIComponent(r.art)}`} alt="" />
-            ) : (
-              <span className="np-rec-noart">♪</span>
-            )}
-            <span className="np-rec-meta">
-              <span className="np-rec-title">{r.title}</span>
-              <span className="np-rec-artist">{r.artist}</span>
-            </span>
-            <span className="np-rec-play">{busy === r.title ? '…' : '▶'}</span>
-          </button>
-        ))}
-      </div>
-      {login && !login.loggedIn && (
-        <div className="np-login">
-          {login.configured ? (
-            <button className="tb-btn" onClick={startLogin}>
-              LOG IN WITH SPOTIFY
-            </button>
-          ) : (
-            <span className="np-dim">Add SPOTIFY_CLIENT_ID to .kimi.env to play picks</span>
-          )}
-        </div>
-      )}
-      {note && <div className="np-note">{note}</div>}
-      </>
-      )}
-    </div>
+    <PickPanel
+      title={`FOR YOU${from ? ` · FROM ${from.toUpperCase()}` : ''}`}
+      tracks={data.tracks}
+      storageKey="zen.foryou.collapsed"
+    />
   )
 }

@@ -25,7 +25,7 @@ import { searchServer, searchSource } from './search.mjs'
 import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
 import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount, playUri, spotifyInBackground } from './mac.mjs'
 import { browserServer } from './browser.mjs'
-import { recommendations, lyrics, spotifyStatus, loginUrl, finishLogin, searchTrack, canSearch } from './music.mjs'
+import { forYou, recommendations, lyrics, spotifyStatus, loginUrl, finishLogin, searchTrack, canSearch } from './music.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
@@ -844,6 +844,7 @@ const handleRequest = async (req, res) => {
       if (req.method === 'GET' && u.pathname === '/music/recs') {
         return out(200, await recommendations(u.searchParams.get('artist'), u.searchParams.get('title') ?? ''))
       }
+      if (req.method === 'GET' && u.pathname === '/music/foryou') return out(200, await forYou())
       if (req.method === 'GET' && u.pathname === '/music/lyrics') {
         return out(200, await lyrics(Object.fromEntries(u.searchParams)))
       }

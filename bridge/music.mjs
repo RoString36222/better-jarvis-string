@@ -205,3 +205,41 @@ export async function searchTrack(query) {
 }
 
 export const canSearch = () => Boolean(loadToken()?.refresh_token || (CLIENT_ID && CLIENT_SECRET))
+
+// ------------------------------------------------------------------ for you
+
+/**
+ * Recommended for the user, not for the song: their top artists on Spotify
+ * lately, each widened with Deezer's artist radio (Spotify's own
+ * recommendations endpoint is closed to new apps), interleaved so no one
+ * artist dominates, minus what they already play the most.
+ */
+export async function forYou() {
+  const token = loadToken()?.refresh_token ? await accessToken() : null
+  if (!token) return { needLogin: true, tracks: [] }
+  return cached('foryou', 30 * 60_000, async () => {
+    const auth = { headers: { Authorization: `Bearer ${token}` } }
+    const [artists, top] = await Promise.all([
+      json('https://api.spotify.com/v1/me/top/artists?limit=4&time_range=short_term', auth),
+      json('https://api.spotify.com/v1/me/top/tracks?limit=30&time_range=short_term', auth).catch(() => ({ items: [] })),
+    ])
+    const known = new Set((top.items ?? []).map((t) => `${t.name}|${t.artists?.[0]?.name}`.toLowerCase()))
+    const lists = await Promise.all(
+      (artists.items ?? []).map((a) => recommendations(a.name).catch(() => [])),
+    )
+    const out = []
+    const seen = new Set()
+    for (let i = 0; out.length < 10 && i < 8; i++) {
+      for (const list of lists) {
+        const t = list[i]
+        if (!t) continue
+        const k = `${t.title}|${t.artist}`.toLowerCase()
+        if (seen.has(k) || known.has(k)) continue
+        seen.add(k)
+        out.push(t)
+        if (out.length >= 10) break
+      }
+    }
+    return { needLogin: false, basedOn: (artists.items ?? []).map((a) => a.name), tracks: out }
+  })
+}

@@ -2231,7 +2231,8 @@ kbd {
 }
 .np-dock > * { pointer-events: auto }
 .np-dock > .np { grid-area: player }
-.np-recs { grid-area: recs; align-self: stretch }
+.np-side { grid-area: recs; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; min-height: 0; max-height: calc(100vh - 230px) }
+.np-side .np-recs { flex: 0 1 auto; min-height: 0 }
 .np-lyrics { grid-area: lyrics }
 
 .np {
@@ -2394,7 +2395,7 @@ kbd {
 .np-lyr-plain { margin: 0; font: 12px/1.5 'Chakra Petch', sans-serif; white-space: pre-wrap; opacity: 0.8 }
 
 /* up next */
-.np-recs { width: 260px; max-height: 330px }
+.np-recs { width: 260px; max-height: 300px }
 .np-recs-list { overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 4px }
 .np-rec {
   display: flex;
