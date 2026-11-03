@@ -27,8 +27,11 @@ export VITE_KOKORO_VOICE="${VOICE:-${VITE_KOKORO_VOICE:-bm_george}}"
 # model is downloaded. Works in every browser. See README for setup.
 WHISPER_MODEL="${WHISPER_MODEL:-models/ggml-large-v3-turbo-q5_0.bin}"
 if [ -z "${WHISPER_URL:-}" ] && command -v whisper-server >/dev/null && [ -f "$WHISPER_MODEL" ]; then
-  whisper-server -m "$WHISPER_MODEL" --host 127.0.0.1 --port 8178 --convert \
-    -l "${STRING_STT_LANG:-en}" > "${TMPDIR:-/tmp}/string-whisper.log" 2>&1 &
+  # Run from the temp dir: --convert writes each clip of the user's voice as a
+  # .wav in the working directory, which must never be the repo.
+  WHISPER_MODEL_ABS="$(cd "$(dirname "$WHISPER_MODEL")" && pwd)/$(basename "$WHISPER_MODEL")"
+  ( cd "${TMPDIR:-/tmp}" && exec whisper-server -m "$WHISPER_MODEL_ABS" --host 127.0.0.1 --port 8178 --convert \
+    -l "${STRING_STT_LANG:-en}" ) > "${TMPDIR:-/tmp}/string-whisper.log" 2>&1 &
   WHISPER_PID=$!
   export WHISPER_URL="http://127.0.0.1:8178"
   echo "  local Whisper starting (pid $WHISPER_PID)"

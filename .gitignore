@@ -34,3 +34,7 @@ models/
 
 # Local text-to-speech environment (mlx-audio)
 .venv-tts/
+
+# Temporary audio whisper-server writes while converting (your voice — never commit)
+*.wav
+whisper-server-*
