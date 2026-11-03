@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { canSearch, searchTrack } from './music.mjs'
 
 /**
  * Hands on the Mac — a short list of named actions, not a shell.
@@ -58,7 +59,7 @@ const SPOTIFY = (cmd) => `tell application "Spotify" to ${cmd}`
  * and hidden, so "play" never pulls its window over ZEN; the player in ZEN is
  * the interface.
  */
-async function spotifyInBackground() {
+export async function spotifyInBackground() {
   const running = await run('application "Spotify" is running').catch(() => 'false')
   if (running === 'true') return
   await new Promise((resolve) => execFile('open', ['-gj', '-a', 'Spotify'], () => resolve()))
@@ -84,7 +85,7 @@ const DEFAULT_PLAYLIST = process.env.ZEN_DEFAULT_PLAYLIST || 'spotify:playlist:3
  * Starts a track or playlist and makes sure it is actually playing. Spotify
  * 1.3 loads a URI paused and pops its window, so: load, play, hide, check.
  */
-async function playUri(uri) {
+export async function playUri(uri) {
   await run('on run argv\ntell application "Spotify" to play track (item 1 of argv)\nend run', [uri])
   await new Promise((r) => setTimeout(r, 700))
   if (!(await isPlaying())) await run(SPOTIFY('play')).catch(() => {})
@@ -93,31 +94,8 @@ async function playUri(uri) {
   return isPlaying()
 }
 
-/**
- * Finds a track's URI with Spotify's search API (client-credentials: no user
- * login, just a free developer app's id and secret). Without them, null.
- */
-async function spotifyTrack(query) {
-  const id = process.env.SPOTIFY_CLIENT_ID
-  const secret = process.env.SPOTIFY_CLIENT_SECRET
-  if (!id || !secret) return null
-  const tok = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,
-      'content-type': 'application/x-www-form-urlencoded',
-    },
-    body: 'grant_type=client_credentials',
-    signal: AbortSignal.timeout(8000),
-  }).then((r) => r.json())
-  if (!tok.access_token) return null
-  const res = await fetch(
-    `https://api.spotify.com/v1/search?type=track&limit=1&q=${encodeURIComponent(query)}`,
-    { headers: { Authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(8000) },
-  ).then((r) => r.json())
-  const t = res.tracks?.items?.[0]
-  return t ? { uri: t.uri, name: t.name, artist: t.artists?.map((a) => a.name).join(', ') } : null
-}
+/** Finds a track with Spotify search: the user's login, or id+secret. */
+const spotifyTrack = (query) => searchTrack(query)
 
 /**
  * What Spotify is doing, for the on-screen player. Null when Spotify is not
@@ -280,13 +258,13 @@ export function macServer() {
           if (!resolveApp('Spotify')) return fail('Spotify is not installed.')
           const q = String(query ?? '').trim()
           if (!q) return fail('Nothing to play.')
-          if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+          if (!canSearch()) {
             // Never fall back to opening Spotify's window: the user wants the
             // music in the background and the player in ZEN, not a jump to the app.
             return fail(
-              'Playing a specific song needs the Spotify keys (SPOTIFY_CLIENT_ID and ' +
-                'SPOTIFY_CLIENT_SECRET in .kimi.env), which are not set. Say so briefly. ' +
-                'Resume, pause and next still work.',
+              'Playing a specific song needs Spotify search, which is not set up: the user ' +
+                'adds SPOTIFY_CLIENT_ID to .kimi.env and presses "Log in with Spotify" on the ' +
+                'player. Say so briefly. Resume, pause and next still work.',
             )
           }
           const track = await spotifyTrack(q).catch(() => null)

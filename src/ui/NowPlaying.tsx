@@ -42,6 +42,20 @@ export function NowPlaying() {
   const [pos, setPos] = useState(0)
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [dragging, setDragging] = useState<number | null>(null)
+  const [showLyrics, setShowLyrics] = useState(() => {
+    try {
+      return localStorage.getItem('zen.lyrics') === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('zen.lyrics', showLyrics ? '1' : '0')
+    } catch {
+      /* storage blocked */
+    }
+  }, [showLyrics])
   /** Where the last poll put us, and when — for smooth interpolation. */
   const anchor = useRef({ position: 0, at: 0, playing: false })
   const bar = useRef<HTMLDivElement>(null)
@@ -128,12 +142,15 @@ export function NowPlaying() {
     <AnimatePresence>
       {show && media && (
         <motion.div
-          className={`np${playing ? ' np-playing' : ''}`}
+          className="np-dock"
           initial={{ opacity: 0, y: 18, filter: 'blur(6px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           exit={{ opacity: 0, y: 18, filter: 'blur(6px)' }}
           transition={{ type: 'spring', stiffness: 260, damping: 28 }}
         >
+          {showLyrics && <Lyrics media={media} position={shown} />}
+          <Recs media={media} />
+          <div className={`np${playing ? ' np-playing' : ''}`}>
           <span className="pk pk-tl" />
           <span className="pk pk-tr" />
           <span className="pk pk-bl" />
@@ -149,9 +166,18 @@ export function NowPlaying() {
               </span>
               {playing ? 'NOW PLAYING' : 'PAUSED'} · SPOTIFY
             </span>
-            <button className="np-x" onClick={() => setDismissed(key)} title="Hide until the next track">
-              ✕
-            </button>
+            <span className="np-acts">
+              <button
+                className={`np-tag${showLyrics ? ' np-tag-on' : ''}`}
+                onClick={() => setShowLyrics((v) => !v)}
+                title="Synced lyrics"
+              >
+                LYRICS
+              </button>
+              <button className="np-x" onClick={() => setDismissed(key)} title="Hide until the next track">
+                ✕
+              </button>
+            </span>
           </div>
 
           <div className="np-body">
@@ -209,8 +235,173 @@ export function NowPlaying() {
               </svg>
             </button>
           </div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+// ------------------------------------------------------------------- lyrics
+
+type LyricLine = { t: number; line: string }
+type LyricsDoc = { synced?: LyricLine[]; plain?: string; instrumental?: boolean; source?: string } | null
+
+/**
+ * Synced lyrics, karaoke-style: the current line lit, its neighbours fading.
+ * Falls back to plain lyrics (scrollable) when no timings exist.
+ */
+function Lyrics({ media, position }: { media: Media; position: number }) {
+  const [doc, setDoc] = useState<LyricsDoc | 'loading'>('loading')
+  const list = useRef<HTMLDivElement>(null)
+  const key = `${media.title}|${media.artist}`
+
+  useEffect(() => {
+    let alive = true
+    setDoc('loading')
+    const q = new URLSearchParams({
+      artist: media.artist ?? '',
+      title: media.title ?? '',
+      album: media.album ?? '',
+      duration: String(Math.round(media.duration ?? 0)),
+    })
+    fetch(`${BRIDGE_HTTP_URL}/music/lyrics?${q}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: LyricsDoc) => alive && setDoc(d))
+      .catch(() => alive && setDoc(null))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  const lines = doc && doc !== 'loading' ? doc.synced : undefined
+  // A hair early: a line should light as it is sung, not after.
+  const at = lines ? Math.max(0, lines.findLastIndex((l) => l.t <= position + 0.25)) : -1
+
+  useEffect(() => {
+    const el = list.current?.querySelector<HTMLElement>(`[data-i="${at}"]`)
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [at])
+
+  return (
+    <div className="np-panel np-lyrics">
+      <div className="np-panel-head">LYRICS{doc && doc !== 'loading' && doc.source ? ` · ${doc.source}` : ''}</div>
+      <div className="np-lyr-body" ref={list}>
+        {doc === 'loading' && <p className="np-dim">Finding lyrics…</p>}
+        {doc === null && <p className="np-dim">No lyrics found for this one.</p>}
+        {doc && doc !== 'loading' && doc.instrumental && <p className="np-dim">Instrumental.</p>}
+        {lines?.map((l, i) => (
+          <p key={i} data-i={i} className={`np-lyr${i === at ? ' np-lyr-now' : i < at ? ' np-lyr-past' : ''}`}>
+            {l.line || '♪'}
+          </p>
+        ))}
+        {doc && doc !== 'loading' && !lines && doc.plain && <pre className="np-lyr-plain">{doc.plain}</pre>}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------- recommendations
+
+type Rec = { title: string; artist: string; art: string | null }
+
+/**
+ * Up next: songs in the orbit of what is playing (Deezer's artist radio).
+ * Tapping one plays it in Spotify, in the background — which needs the
+ * Spotify login, offered right here when it is missing.
+ */
+function Recs({ media }: { media: Media }) {
+  const [recs, setRecs] = useState<Rec[]>([])
+  const [login, setLogin] = useState<{ configured: boolean; loggedIn: boolean } | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [note, setNote] = useState('')
+  const key = `${media.title}|${media.artist}`
+
+  useEffect(() => {
+    let alive = true
+    const q = new URLSearchParams({ artist: media.artist ?? '', title: media.title ?? '' })
+    fetch(`${BRIDGE_HTTP_URL}/music/recs?${q}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: Rec[]) => alive && setRecs(Array.isArray(d) ? d : []))
+      .catch(() => alive && setRecs([]))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  const refreshLogin = () =>
+    fetch(`${BRIDGE_HTTP_URL}/spotify/status`)
+      .then((r) => r.json())
+      .then(setLogin)
+      .catch(() => {})
+  useEffect(() => {
+    void refreshLogin()
+  }, [])
+
+  const play = async (r: Rec) => {
+    setBusy(r.title)
+    setNote('')
+    try {
+      const res = await fetch(`${BRIDGE_HTTP_URL}/music/play`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: r.title, artist: r.artist }),
+      })
+      if (res.status === 409) {
+        await refreshLogin()
+        setNote('Log in with Spotify to play picks.')
+      } else if (!res.ok) {
+        setNote(`Couldn't find “${r.title}” on Spotify.`)
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const startLogin = () => {
+    window.open(`${BRIDGE_HTTP_URL}/spotify/login`, '_blank', 'width=520,height=720')
+    // Pick the new login up when it lands, for the next two minutes.
+    let n = 0
+    const t = setInterval(() => {
+      void refreshLogin()
+      if (++n > 40) clearInterval(t)
+    }, 3000)
+  }
+
+  if (!recs.length) return null
+  return (
+    <div className="np-panel np-recs">
+      <div className="np-panel-head">UP NEXT · LIKE {String(media.artist ?? '').toUpperCase()}</div>
+      <div className="np-recs-list">
+        {recs.map((r) => (
+          <button key={`${r.title}|${r.artist}`} className="np-rec" onClick={() => void play(r)} disabled={busy !== null}>
+            {r.art ? (
+              <img src={`${BRIDGE_HTTP_URL}/img?url=${encodeURIComponent(r.art)}`} alt="" />
+            ) : (
+              <span className="np-rec-noart">♪</span>
+            )}
+            <span className="np-rec-meta">
+              <span className="np-rec-title">{r.title}</span>
+              <span className="np-rec-artist">{r.artist}</span>
+            </span>
+            <span className="np-rec-play">{busy === r.title ? '…' : '▶'}</span>
+          </button>
+        ))}
+      </div>
+      {login && !login.loggedIn && (
+        <div className="np-login">
+          {login.configured ? (
+            <button className="tb-btn" onClick={startLogin}>
+              LOG IN WITH SPOTIFY
+            </button>
+          ) : (
+            <span className="np-dim">Add SPOTIFY_CLIENT_ID to .kimi.env to play picks</span>
+          )}
+        </div>
+      )}
+      {note && <div className="np-note">{note}</div>}
+    </div>
   )
 }

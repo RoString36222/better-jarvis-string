@@ -23,7 +23,8 @@ import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { searchServer, searchSource } from './search.mjs'
 import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
-import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount } from './mac.mjs'
+import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount, playUri, spotifyInBackground } from './mac.mjs'
+import { recommendations, lyrics, spotifyStatus, loginUrl, finishLogin, searchTrack, canSearch } from './music.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -820,6 +821,52 @@ const handleRequest = async (req, res) => {
     return res.end()
   }
 
+  // Around the player: recommendations, lyrics, playing a pick, Spotify login.
+  if (req.url?.startsWith('/music/') || req.url?.startsWith('/spotify/') || req.url?.startsWith('/callback')) {
+    const u = new URL(req.url, 'http://127.0.0.1')
+    const out = (code, body, type = 'application/json') => {
+      res.writeHead(code, { ...cors, 'content-type': type, 'cache-control': 'no-store' })
+      return res.end(type === 'application/json' ? JSON.stringify(body) : body)
+    }
+    try {
+      if (req.method === 'GET' && u.pathname === '/music/recs') {
+        return out(200, await recommendations(u.searchParams.get('artist'), u.searchParams.get('title') ?? ''))
+      }
+      if (req.method === 'GET' && u.pathname === '/music/lyrics') {
+        return out(200, await lyrics(Object.fromEntries(u.searchParams)))
+      }
+      if (req.method === 'POST' && u.pathname === '/music/play') {
+        let body = ''
+        for await (const c of req) body += c
+        const { title, artist } = JSON.parse(body || '{}')
+        if (!canSearch()) return out(409, { needLogin: true, configured: spotifyStatus().configured })
+        const track = await searchTrack(`${title} ${artist}`)
+        if (!track) return out(404, { error: 'not on Spotify' })
+        await spotifyInBackground()
+        return out(200, { playing: await playUri(track.uri), track })
+      }
+      if (req.method === 'GET' && u.pathname === '/spotify/status') return out(200, spotifyStatus())
+      if (req.method === 'GET' && u.pathname === '/spotify/login') {
+        const to = loginUrl()
+        if (!to) return out(400, 'Add SPOTIFY_CLIENT_ID to .kimi.env and restart ZEN first.', 'text/plain')
+        res.writeHead(302, { location: to })
+        return res.end()
+      }
+      if (req.method === 'GET' && u.pathname === '/callback') {
+        const err = u.searchParams.get('error')
+        if (err) return out(400, `<p style="font:16px system-ui">Spotify login cancelled (${err}).</p>`, 'text/html')
+        const who = await finishLogin(u.searchParams.get('code'), u.searchParams.get('state'))
+        return out(
+          200,
+          `<!doctype html><meta charset="utf-8"><title>ZEN</title><body style="font:16px system-ui;background:#020612;color:#e3edff;display:grid;place-items:center;height:100vh;margin:0"><div>ZEN is connected to Spotify${who ? ` as <b>${String(who).replace(/[<&]/g, '')}</b>` : ''}. You can close this tab.</div><script>setTimeout(()=>window.close(),1500)</script></body>`,
+          'text/html',
+        )
+      }
+    } catch (err) {
+      return out(502, { error: String(err?.message ?? err) })
+    }
+  }
+
   // The on-screen music player: Spotify's state, and its buttons.
   if (req.url === '/media') {
     try {
@@ -1249,6 +1296,7 @@ console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] web search via ${searchSource()} · ${memoryCount()} saved memories`)
 if (WATCH_MINUTES) console.log(`[jarvis] proactive check every ${WATCH_MINUTES} min`)
 console.log(`[jarvis] voice via ${elevenKey() ? 'ElevenLabs' : LOCAL_TTS_URL ? `local Kokoro ${LOCAL_TTS_VOICE} (${LOCAL_TTS_URL})` : 'the browser'}`)
+console.log(`[jarvis] spotify: ${(() => { const st = spotifyStatus(); return st.loggedIn ? `logged in${st.user ? ` as ${st.user}` : ''}` : st.configured ? 'client id set, not logged in' : 'no client id' })()}`)
 console.log(`[jarvis] mac control on · ${reminderCount()} pending reminders`)
 console.log(`[jarvis] hearing via ${elevenKey() ? 'ElevenLabs Scribe' : WHISPER_URL ? `local Whisper (${WHISPER_URL})` : 'browser speech recognition'}`)
 if (FAST_MODEL) console.log(`[jarvis] fast model ${FAST_MODEL} for face commands and small talk`)

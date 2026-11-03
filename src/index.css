@@ -2215,12 +2215,27 @@ kbd {
 }
 
 /* -------- now playing: the holographic music player -------- */
-.np {
+/* The dock: lyrics above the player, picks to its left. */
+.np-dock {
   position: fixed;
   right: 72px;
   bottom: 112px;
   z-index: 7;
-  width: min(340px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: 260px 340px;
+  grid-template-areas: '. lyrics' 'recs player';
+  align-items: end;
+  gap: 12px;
+  pointer-events: none;
+}
+.np-dock > * { pointer-events: auto }
+.np-dock > .np { grid-area: player }
+.np-recs { grid-area: recs; align-self: stretch }
+.np-lyrics { grid-area: lyrics }
+
+.np {
+  position: relative;
+  width: 340px;
   padding: 14px 16px 12px;
   pointer-events: auto;
   font-family: 'JetBrains Mono', monospace;
@@ -2315,4 +2330,94 @@ kbd {
 .np-ctl .np-main { width: 44px; height: 44px; border-color: var(--accent); box-shadow: 0 0 16px -4px var(--accent) }
 .np-ctl .np-main svg { width: 18px; height: 18px }
 
-@media (max-width: 700px) { .np { right: 16px; bottom: 96px } }
+@media (max-width: 1100px) {
+  .np-dock { grid-template-columns: min(340px, calc(100vw - 32px)); grid-template-areas: 'lyrics' 'player' 'recs'; right: 16px; bottom: 96px }
+  .np-recs { max-height: 180px }
+}
+
+.np-acts { display: flex; align-items: center; gap: 8px }
+.np-tag {
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--accent) 80%, #fff);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  cursor: pointer;
+}
+.np-tag-on, .np-tag:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); color: #fff }
+
+.np-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 12px 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #e3edff;
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--accent) 10%, rgba(2, 6, 18, 0.88)),
+    color-mix(in srgb, var(--accent) 4%, rgba(2, 6, 18, 0.92)));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  backdrop-filter: blur(12px);
+}
+.np-panel-head { font-size: 8.5px; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.np-dim { font-size: 10.5px; opacity: 0.55; margin: 4px 0; text-transform: none; letter-spacing: 0.02em }
+
+/* lyrics: the current line lit, neighbours fading */
+.np-lyrics { width: 340px; height: 210px }
+.np-lyr-body {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent);
+  text-transform: none;
+}
+.np-lyr-body::-webkit-scrollbar { display: none }
+.np-lyr {
+  margin: 0;
+  padding: 5px 2px;
+  font: 500 13px/1.35 'Chakra Petch', sans-serif;
+  letter-spacing: 0.01em;
+  opacity: 0.35;
+  transition: opacity 300ms ease, color 300ms ease, transform 300ms ease;
+}
+.np-lyr-past { opacity: 0.22 }
+.np-lyr-now {
+  opacity: 1;
+  color: #f0f6ff;
+  transform: scale(1.03);
+  transform-origin: left center;
+  text-shadow: 0 0 14px var(--accent);
+}
+.np-lyr-plain { margin: 0; font: 12px/1.5 'Chakra Petch', sans-serif; white-space: pre-wrap; opacity: 0.8 }
+
+/* up next */
+.np-recs { width: 260px; max-height: 330px }
+.np-recs-list { overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 4px }
+.np-rec {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.np-rec:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent) }
+.np-rec:disabled { cursor: wait }
+.np-rec img, .np-rec-noart { width: 36px; height: 36px; flex: none; object-fit: cover; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent) }
+.np-rec-noart { display: grid; place-items: center; color: var(--accent) }
+.np-rec-meta { display: flex; flex-direction: column; min-width: 0; flex: 1 }
+.np-rec-title, .np-rec-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: none }
+.np-rec-title { font: 600 12px 'Chakra Petch', sans-serif; color: #f0f6ff }
+.np-rec-artist { font-size: 10px; opacity: 0.6 }
+.np-rec-play { font-size: 10px; color: var(--accent); opacity: 0; transition: opacity 150ms ease }
+.np-rec:hover .np-rec-play { opacity: 1 }
+.np-login { margin-top: 8px; display: flex; justify-content: center }
+.np-note { margin-top: 6px; font-size: 10px; opacity: 0.75; text-transform: none; letter-spacing: 0.02em }
