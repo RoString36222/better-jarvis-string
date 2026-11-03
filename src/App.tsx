@@ -129,6 +129,18 @@ export default function App() {
 
   // -- one turn -------------------------------------------------------------
 
+  /** Alerts that arrived while the window was hidden (the Dock badge). */
+  const unseen = useRef(0)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden || !unseen.current) return
+      unseen.current = 0
+      document.title = 'Z.E.N.'
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
   const respond = async (said: string): Promise<void> => {
     const mine = ++turn.current
     const stale = () => mine !== turn.current
@@ -351,6 +363,29 @@ export default function App() {
       speaker.current?.cancel()
       void respond(text)
     }
+    // STOP button and Esc: abandon the answer, silence him, back to rest.
+    const onStop = () => {
+      const phase = store.getState().phase
+      if (phase === 'thinking' || phase === 'tooling' || phase === 'speaking') {
+        turn.current++
+        interrupt()
+        store.getState().setActiveTool(null)
+        music.working(false)
+        sfx.duck(false)
+        music.duck(false)
+      }
+      silence()
+      speaker.current?.cancel()
+      if (phase !== 'offline' && phase !== 'boot') goDormant()
+    }
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      onStop()
+    }
+    window.addEventListener('string:stop', onStop)
+    window.addEventListener('keydown', onEsc)
     const onBrief = () => {
       const phase = store.getState().phase
       if (phase === 'offline' || phase === 'boot') return
@@ -361,6 +396,8 @@ export default function App() {
     return () => {
       window.removeEventListener('string:ask', onAsk)
       window.removeEventListener('string:brief', onBrief)
+      window.removeEventListener('string:stop', onStop)
+      window.removeEventListener('keydown', onEsc)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -425,13 +462,27 @@ export default function App() {
     // Proactive alerts: spoken only while nothing else is going on, so an
     // alert never talks over an answer. A missed one stays in the transcript.
     watchNotify((text) => {
-      const st = store.getState()
-      st.pushTurn({ id: newId(), role: 'jarvis', text })
-      if (st.phase !== 'dormant' && st.phase !== 'listening') return
-      sfx.play('wake')
-      const spk = createSpeaker()
-      spk.push(text)
-      void spk.end()
+      store.getState().pushTurn({ id: newId(), role: 'jarvis', text })
+      // Hidden window: count it in the title, which the desktop app turns
+      // into a Dock badge. Cleared when the window is looked at again.
+      if (document.hidden) {
+        unseen.current++
+        document.title = `(${unseen.current}) Z.E.N.`
+      }
+      // Said aloud once he is free — never over an answer, never dropped.
+      let tries = 0
+      const sayWhenIdle = () => {
+        const phase = store.getState().phase
+        if (phase !== 'dormant' && phase !== 'listening') {
+          if (++tries < 120) setTimeout(sayWhenIdle, 1000)
+          return
+        }
+        sfx.play('wake')
+        const spk = createSpeaker()
+        spk.push(text)
+        void spk.end()
+      }
+      sayWhenIdle()
     })
 
     /**

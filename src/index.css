@@ -1930,6 +1930,13 @@ kbd {
   box-shadow: 0 0 14px -4px var(--accent);
 }
 .tb-btn:disabled { opacity: 0.35; cursor: default }
+.tb-stop {
+  color: #fff;
+  background: rgba(220, 38, 38, 0.85);
+  border-color: #ff6b6b;
+  box-shadow: 0 0 14px -2px rgba(255, 80, 80, 0.8);
+}
+.tb-stop:hover:not(:disabled) { background: rgba(239, 68, 68, 0.95); color: #fff }
 .tb-history {
   position: absolute;
   top: calc(100% + 6px);
@@ -2206,3 +2213,106 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .arc-layer { transition: none }
 }
+
+/* -------- now playing: the holographic music player -------- */
+.np {
+  position: fixed;
+  right: 72px;
+  bottom: 112px;
+  z-index: 7;
+  width: min(340px, calc(100vw - 32px));
+  padding: 14px 16px 12px;
+  pointer-events: auto;
+  font-family: 'JetBrains Mono', monospace;
+  color: #e3edff;
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--accent) 14%, rgba(2, 6, 18, 0.9)),
+    color-mix(in srgb, var(--accent) 5%, rgba(2, 6, 18, 0.94)));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 30px -12px var(--accent);
+}
+.np-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px }
+.np-kicker { display: flex; align-items: center; gap: 8px; font-size: 9px; letter-spacing: 0.2em; color: var(--accent) }
+.np-x { background: none; border: 0; color: color-mix(in srgb, var(--accent) 70%, #fff); cursor: pointer; font-size: 11px; opacity: 0.6 }
+.np-x:hover { opacity: 1 }
+
+.np-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px }
+.np-eq i { width: 2px; height: 3px; background: var(--accent); box-shadow: 0 0 4px var(--accent) }
+.np-playing .np-eq i { animation: np-eq 0.9s ease-in-out infinite }
+.np-playing .np-eq i:nth-child(2) { animation-delay: -0.3s }
+.np-playing .np-eq i:nth-child(3) { animation-delay: -0.6s }
+.np-playing .np-eq i:nth-child(4) { animation-delay: -0.15s }
+@keyframes np-eq { 0%, 100% { height: 3px } 50% { height: 10px } }
+
+.np-body { display: flex; gap: 12px; align-items: center }
+.np-art {
+  width: 64px;
+  height: 64px;
+  flex: none;
+  object-fit: cover;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 18px -4px var(--accent);
+}
+.np-art-empty { display: grid; place-items: center; font-size: 24px; color: var(--accent); background: rgba(2, 6, 18, 0.6) }
+.np-playing .np-art { animation: np-glow 2.4s ease-in-out infinite }
+@keyframes np-glow { 50% { box-shadow: 0 0 26px -2px var(--accent) } }
+.np-meta { min-width: 0 }
+.np-title, .np-artist, .np-album { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.np-title { font: 600 14px 'Chakra Petch', sans-serif; letter-spacing: 0.02em; color: #f0f6ff }
+.np-artist { margin-top: 2px; font-size: 11px; color: color-mix(in srgb, var(--accent) 45%, #fff) }
+.np-album { margin-top: 2px; font-size: 9.5px; opacity: 0.55 }
+
+.np-bar {
+  position: relative;
+  height: 14px;
+  margin-top: 12px;
+  cursor: pointer;
+  touch-action: none;
+}
+.np-bar::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 6px;
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.np-fill {
+  position: absolute;
+  left: 0; top: 6px;
+  height: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, transparent), var(--accent));
+  box-shadow: 0 0 8px var(--accent);
+}
+.np-knob {
+  position: absolute;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #f0f6ff;
+  box-shadow: 0 0 10px var(--accent), 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: transform 120ms ease;
+}
+.np-bar:hover .np-knob { transform: scale(1.25) }
+.np-times { display: flex; justify-content: space-between; font-size: 9.5px; opacity: 0.6; margin-top: 2px }
+
+.np-ctl { display: flex; justify-content: center; align-items: center; gap: 18px; margin-top: 6px }
+.np-ctl button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: rgba(2, 6, 18, 0.5);
+  cursor: pointer;
+  transition: background 150ms ease, box-shadow 150ms ease;
+}
+.np-ctl button:hover { background: color-mix(in srgb, var(--accent) 22%, rgba(2, 6, 18, 0.6)); box-shadow: 0 0 14px -4px var(--accent) }
+.np-ctl svg { width: 15px; height: 15px; fill: #e3edff }
+.np-ctl .np-main { width: 44px; height: 44px; border-color: var(--accent); box-shadow: 0 0 16px -4px var(--accent) }
+.np-ctl .np-main svg { width: 18px; height: 18px }
+
+@media (max-width: 700px) { .np { right: 16px; bottom: 96px } }

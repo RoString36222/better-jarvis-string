@@ -76,6 +76,15 @@ app.whenReady().then(async () => {
     webPreferences: { backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
   })
   win.once('ready-to-show', () => win.show())
+  // The page counts alerts that arrived while hidden in its title, "(2) Z.E.N.";
+  // mirror that onto the Dock icon as a badge.
+  win.on('page-title-updated', (e, title) => {
+    const n = title.match(/^\((\d+)\)/)?.[1] ?? ''
+    if (process.platform === 'darwin') app.dock.setBadge(n)
+  })
+  win.on('focus', () => {
+    if (process.platform === 'darwin') app.dock.setBadge('')
+  })
   // Closing hides: ZEN stays one hotkey away. Quit with ⌘Q.
   win.on('close', (e) => {
     if (!app.isQuitting) {

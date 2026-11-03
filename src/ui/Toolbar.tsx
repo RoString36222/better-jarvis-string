@@ -43,8 +43,20 @@ export function Toolbar() {
     })
   }
 
+  const phase = useStore((s) => s.phase)
+  const busy = phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
+
   return (
     <div className="toolbar">
+      {busy && (
+        <button
+          className="tb-btn tb-stop"
+          onClick={() => window.dispatchEvent(new CustomEvent('string:stop'))}
+          title="Stop (Esc)"
+        >
+          ■ STOP
+        </button>
+      )}
       <button
         className={`tb-btn${open ? ' tb-on' : ''}`}
         onClick={() => setOpen((v) => !v)}

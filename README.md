@@ -25,6 +25,17 @@ Say **"Hey Zen"**, or type in the box at the bottom.
   automatic morning briefing.
 - **Plain-words status** ("Checking the weather in Mumbai…"), toolbar
   (HISTORY, TIDY, CLEAR VIEW, BRIEF, CAMERA), type-to-ask box.
+- **Mac control, safely** — "open Slack", "play Blinding Lights on Spotify", "next
+  song", "volume down": a fixed list of named actions (allowlisted apps,
+  Spotify, volume) with no shell behind them. Set `SPOTIFY_CLIENT_ID` and
+  `SPOTIFY_CLIENT_SECRET` (a free Spotify developer app) for "play X" to start
+  the track by itself; without them it opens Spotify's search for it.
+- **Holographic music player** — album art, seek bar, previous / play-pause /
+  next, shown whenever Spotify is playing.
+- **Timers and reminders** — "remind me in 20 minutes to check the deploy",
+  "ping me at 4": spoken when due, a macOS notification, and a Dock badge if
+  ZEN is hidden. Kept in `~/.string/reminders.json`.
+- **STOP button and Esc** cut ZEN off mid-answer.
 - **Desktop app** with a global hotkey (⌥Space) — `npm run desktop`.
 - `web_search` (Serper/Brave with a key, Wikipedia without) and a keyless
   `weather` tool (Open-Meteo).

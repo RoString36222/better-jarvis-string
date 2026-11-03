@@ -23,6 +23,7 @@ import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { searchServer, searchSource } from './search.mjs'
 import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
+import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount } from './mac.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -360,6 +361,10 @@ function decideTool(name, input) {
     // Memory writes only to STRING's own file, and only what the user said.
     if (server === 'jarvis_memory') return true
 
+    // The Mac tools are a fixed list of named actions (open an allowlisted
+    // app, Spotify, volume, reminders) with no shell behind them — see mac.mjs.
+    if (server === 'jarvis_mac') return true
+
     const tool = mcpToolOf(name)
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
       return ALLOW_WRITES
@@ -398,6 +403,11 @@ function describeTool(name, input = {}) {
   if (tool === 'web_search' || name === 'WebSearch') return `Searching “${cut(input.query ?? '')}”…`
   if (name === 'WebFetch') return `Reading ${host(input.url)}…`
   if (tool === 'remember') return 'Remembering that…'
+  if (tool === 'open_app') return `Opening ${input.app ?? 'the app'}…`
+  if (tool === 'play_song') return `Finding “${cut(input.query ?? '', 36)}” on Spotify…`
+  if (tool === 'spotify') return 'Controlling Spotify…'
+  if (tool === 'volume') return 'Adjusting the volume…'
+  if (tool === 'set_reminder') return 'Setting a reminder…'
   if (tool === 'recall') return 'Checking what I know…'
   if (tool === 'research_wall') return `Building the ${cut(input.topic ?? 'research', 30)} briefing…`
   if (tool === 'blade') return `Opening ${cut(input.title ?? input.kind ?? 'a panel', 30)}…`
@@ -810,6 +820,28 @@ const handleRequest = async (req, res) => {
     return res.end()
   }
 
+  // The on-screen music player: Spotify's state, and its buttons.
+  if (req.url === '/media') {
+    try {
+      if (req.method === 'GET') {
+        const st = await spotifyState()
+        res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+        return res.end(JSON.stringify(st))
+      }
+      if (req.method === 'POST') {
+        let body = ''
+        for await (const c of req) body += c
+        const { action, position } = JSON.parse(body || '{}')
+        await spotifyControl(action, position)
+        res.writeHead(204, cors)
+        return res.end()
+      }
+    } catch (err) {
+      res.writeHead(502, cors)
+      return res.end(String(err?.message ?? err))
+    }
+  }
+
   if (req.method === 'GET' && req.url === '/health') {
     // The browser reads this once at boot to decide which voice engine to use.
     // Both premium paths ride the same ElevenLabs key, so both flags track it:
@@ -1215,6 +1247,7 @@ console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] web search via ${searchSource()} · ${memoryCount()} saved memories`)
 if (WATCH_MINUTES) console.log(`[jarvis] proactive check every ${WATCH_MINUTES} min`)
 console.log(`[jarvis] voice via ${elevenKey() ? 'ElevenLabs' : LOCAL_TTS_URL ? `local Kokoro ${LOCAL_TTS_VOICE} (${LOCAL_TTS_URL})` : 'the browser'}`)
+console.log(`[jarvis] mac control on · ${reminderCount()} pending reminders`)
 console.log(`[jarvis] hearing via ${elevenKey() ? 'ElevenLabs Scribe' : WHISPER_URL ? `local Whisper (${WHISPER_URL})` : 'browser speech recognition'}`)
 if (FAST_MODEL) console.log(`[jarvis] fast model ${FAST_MODEL} for face commands and small talk`)
 console.log(
@@ -1251,6 +1284,13 @@ const RESULT_FAILURES = {
   default: 'The turn ended without an answer.',
 }
 
+/** Every connected page's send(), for things not tied to one conversation. */
+const everyone = new Set()
+startReminderClock((r) => {
+  console.log(`[jarvis] reminder: ${r.text}`)
+  for (const send of everyone) send({ type: 'notify', text: `Reminder, sir: ${r.text}` })
+})
+
 wss.on('connection', (socket) => {
   console.log('[jarvis] client connected')
 
@@ -1284,6 +1324,7 @@ wss.on('connection', (socket) => {
   const send = (msg) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg))
   }
+  everyone.add(send)
 
   /**
    * Which question the agent is currently answering.
@@ -1444,6 +1485,7 @@ wss.on('connection', (socket) => {
         jarvis_eyes: visionServer(ask),
         jarvis_search: searchServer(),
         jarvis_memory: memoryServer(),
+        jarvis_mac: macServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
@@ -1737,6 +1779,7 @@ wss.on('connection', (socket) => {
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
     if (watchTimer) clearInterval(watchTimer)
+    everyone.delete(send)
     closed = true
     deliver?.(null)
     session.close?.()

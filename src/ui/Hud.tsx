@@ -5,6 +5,7 @@ import { Suggestions } from './Suggestions'
 import { BladeSweep, Blades } from './Blades'
 import { Toolbar, AskBox } from './Toolbar'
 import { ArcReactor } from './ArcReactor'
+import { NowPlaying } from './NowPlaying'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
@@ -160,6 +161,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   jarvis_eyes: 'camera',
   jarvis_search: 'search · weather',
   jarvis_memory: 'memory',
+  jarvis_mac: 'mac · spotify · reminders',
 }
 const systemLabel = (name: string) => SYSTEM_LABELS[name] ?? name
 
@@ -201,6 +203,7 @@ export function Hud() {
       <ArcReactor />
       <Toolbar />
       <AskBox />
+      <NowPlaying />
 
       <Corner at="tl" />
       <Corner at="tr" />
