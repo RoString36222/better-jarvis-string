@@ -6,6 +6,7 @@ import { BladeSweep, Blades } from './Blades'
 import { Toolbar, AskBox } from './Toolbar'
 import { ArcReactor } from './ArcReactor'
 import { NowPlaying } from './NowPlaying'
+import { TerminalWindow } from './TerminalWindow'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
@@ -204,6 +205,7 @@ export function Hud() {
       <Toolbar />
       <AskBox />
       <NowPlaying />
+      <TerminalWindow />
 
       <Corner at="tl" />
       <Corner at="tr" />

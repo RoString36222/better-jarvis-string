@@ -562,6 +562,9 @@ export default function App() {
         case 'reset':
           s.resetUi()
           break
+        case 'terminal':
+          s.setTerminalOpen(a.open ?? true)
+          break
         case 'screen':
           s.clearScreen(a.what ?? 'all')
           break

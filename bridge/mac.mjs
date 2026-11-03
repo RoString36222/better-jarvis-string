@@ -205,16 +205,24 @@ export const reminderCount = () => loadReminders().length
 
 // ------------------------------------------------------------------- server
 
-export function macServer() {
+/** Asked for by name, these open as ZEN's own terminal window instead. */
+const TERMINALS = /^(terminal|kitty|iterm2?|warp|alacritty|ghostty|wezterm|shell|the terminal|a terminal|console)$/i
+
+export function macServer({ openTerminal } = {}) {
   return createSdkMcpServer({
     name: 'jarvis_mac',
     version: '1.0.0',
     tools: [
       tool(
         'open_app',
-        `Open (or bring to front) an app on the user's Mac. Allowed: ${APPS.join(', ')}.`,
+        `Open (or bring to front) an app on the user's Mac. Allowed: ${APPS.join(', ')}. ` +
+          'Terminal, kitty, iTerm and other terminals open INSIDE ZEN as a window instead — pass "terminal".',
         { app: z.string().describe('App name, e.g. "Spotify", "Slack", "Chrome".') },
         async ({ app }) => {
+          if (openTerminal && TERMINALS.test(String(app ?? '').trim())) {
+            openTerminal()
+            return ok('Opened a terminal inside ZEN (left half of the screen).')
+          }
           const name = resolveApp(app)
           if (!name) return fail(`"${app}" is not an app I can open (allowed: ${APPS.join(', ')}), or it is not installed.`)
           await run('on run argv\ntell application (item 1 of argv) to activate\nend run', [name])

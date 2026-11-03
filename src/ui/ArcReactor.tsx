@@ -94,7 +94,7 @@ export function ArcReactor() {
   const root = useRef<HTMLDivElement>(null)
   const phase = useStore((s) => s.phase)
   const ui = useStore((s) => s.ui)
-  const blades = useStore((s) => s.blades.length)
+  const blades = useStore((s) => s.blades.length + (s.terminalOpen ? 1 : 0))
   const mode = useHeldMode(phase)
 
   useEffect(() => {

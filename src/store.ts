@@ -260,6 +260,8 @@ type State = {
   bladeLayout: BladeLayout
   /** Every blade opened this session, newest last, for the HISTORY drawer. */
   bladeHistory: Blade[]
+  /** ZEN's terminal window (left half). */
+  terminalOpen: boolean
   /** JARVIS's control over his own appearance. UI_DEFAULTS == the stock look. */
   ui: UiState
 
@@ -277,6 +279,7 @@ type State = {
   setBladeLayout: (layout: BladeLayout) => void
   /** CLEAR VIEW: closes everything, sticky blades included. */
   closeAllBlades: () => void
+  setTerminalOpen: (open: boolean) => void
   setPhase: (p: Phase) => void
   setLevel: (l: number) => void
   setCaption: (c: string) => void
@@ -312,6 +315,7 @@ export const useStore = create<State>((set) => ({
   expandedBlade: null,
   bladeLayout: 'auto',
   bladeHistory: [],
+  terminalOpen: false,
   bootNote: '',
   ui: defaultUi(),
 
@@ -363,6 +367,7 @@ export const useStore = create<State>((set) => ({
     })),
   setBladeLayout: (bladeLayout) => set({ bladeLayout }),
   closeAllBlades: () => set({ blades: [], focusedBlade: null, expandedBlade: null }),
+  setTerminalOpen: (terminalOpen) => set({ terminalOpen }),
   // Same contract as panels: 'turn' blades go when the user speaks again,
   // 'sticky' ones stay until something replaces them.
   clearBlades: () =>

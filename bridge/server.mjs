@@ -26,6 +26,9 @@ import { memoryServer, memoryPrompt, memoryCount } from './memory.mjs'
 import { macServer, spotifyState, spotifyControl, startReminderClock, reminderCount, playUri, spotifyInBackground } from './mac.mjs'
 import { recommendations, lyrics, spotifyStatus, loginUrl, finishLogin, searchTrack, canSearch } from './music.mjs'
 import { homedir, tmpdir } from 'node:os'
+import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
+import { fileURLToPath } from 'node:url'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
@@ -1272,7 +1275,7 @@ const wss = new WebSocketServer({
   // 403 would look like the bridge simply isn't running.
   verifyClient: ({ origin, req }, done) => {
     const path = (req.url ?? '/').split('?')[0]
-    if (path !== '/' && path !== '/ws') {
+    if (path !== '/' && path !== '/ws' && path !== '/term') {
       console.warn(`[jarvis] rejected websocket on path ${path}`)
       return done(false, 403, 'Forbidden')
     }
@@ -1341,7 +1344,46 @@ startReminderClock((r) => {
   for (const send of everyone) send({ type: 'notify', text: `Reminder, sir: ${r.text}` })
 })
 
-wss.on('connection', (socket) => {
+/**
+ * ZEN's terminal window: one real shell per socket, through bridge/zen_pty.py.
+ *
+ * Yours to type in, not the model's — no tool reaches it, and it is behind the
+ * same origin allowlist and loopback-only bind as everything else here.
+ */
+function handleTerminal(socket) {
+  console.log('[jarvis] terminal opened')
+  const child = spawn('python3', [fileURLToPath(new URL('./zen_pty.py', import.meta.url))], {
+    stdio: ['pipe', 'pipe', 'ignore', 'pipe'],
+    env: { ...process.env, ZEN_TERM_CWD: process.env.ZEN_TERM_CWD || homedir() },
+  })
+  // Output arrives in arbitrary chunks; never split a multi-byte character.
+  const utf8 = new StringDecoder('utf8')
+  child.stdout.on('data', (d) => {
+    if (socket.readyState === socket.OPEN) socket.send(utf8.write(d))
+  })
+  socket.on('message', (raw) => {
+    let m
+    try {
+      m = JSON.parse(raw.toString())
+    } catch {
+      return
+    }
+    if (m.t === 'i' && typeof m.d === 'string') child.stdin.write(m.d)
+    else if (m.t === 'r' && m.cols > 0 && m.rows > 0) {
+      child.stdio[3].write(`${JSON.stringify({ cols: Math.floor(m.cols), rows: Math.floor(m.rows) })}\n`)
+    }
+  })
+  socket.on('close', () => child.kill('SIGHUP'))
+  child.on('exit', () => {
+    console.log('[jarvis] terminal closed')
+    if (socket.readyState === socket.OPEN) socket.close()
+  })
+  child.stdin.on('error', () => {})
+  child.stdio[3].on('error', () => {})
+}
+
+wss.on('connection', (socket, req) => {
+  if ((req.url ?? '').split('?')[0] === '/term') return handleTerminal(socket)
   console.log('[jarvis] client connected')
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1535,7 +1577,7 @@ wss.on('connection', (socket) => {
         jarvis_eyes: visionServer(ask),
         jarvis_search: searchServer(),
         jarvis_memory: memoryServer(),
-        jarvis_mac: macServer(),
+        jarvis_mac: macServer({ openTerminal: () => send({ type: 'ui', op: 'terminal', args: { open: true } }) }),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

@@ -16,6 +16,8 @@ export function Toolbar() {
   const setLayout = useStore((s) => s.setBladeLayout)
   const closeAll = useStore((s) => s.closeAllBlades)
   const pushBlade = useStore((s) => s.pushBlade)
+  const terminalOpen = useStore((s) => s.terminalOpen)
+  const setTerminalOpen = useStore((s) => s.setTerminalOpen)
   const [open, setOpen] = useState(false)
 
   const tiled = layout === 'wall' || (layout === 'auto' && blades.length >= 3)
@@ -83,6 +85,13 @@ export function Toolbar() {
         title="Close every panel"
       >
         CLEAR VIEW
+      </button>
+      <button
+        className={`tb-btn${terminalOpen ? ' tb-on' : ''}`}
+        onClick={() => setTerminalOpen(!terminalOpen)}
+        title="A terminal inside ZEN"
+      >
+        TERMINAL
       </button>
       <button
         className="tb-btn"

@@ -2421,3 +2421,42 @@ kbd {
 .np-rec:hover .np-rec-play { opacity: 1 }
 .np-login { margin-top: 8px; display: flex; justify-content: center }
 .np-note { margin-top: 6px; font-size: 10px; opacity: 0.75; text-transform: none; letter-spacing: 0.02em }
+
+/* -------- the terminal window (left half) -------- */
+.tw {
+  position: fixed;
+  left: 72px;
+  top: 108px;
+  bottom: 100px;
+  z-index: 7;
+  width: calc(50vw - 110px);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--accent) 9%, rgba(2, 6, 18, 0.92)),
+    color-mix(in srgb, var(--accent) 3%, rgba(2, 6, 18, 0.95)));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 30px -14px var(--accent);
+  transition: width 400ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tw-wide { width: calc(100vw - 144px - 360px) }
+.tw-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  font: 10px 'JetBrains Mono', monospace;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
+.tw-title { display: flex; align-items: center; gap: 8px }
+.tw-dot { width: 6px; height: 6px; border-radius: 50%; background: #5ef2b5; box-shadow: 0 0 8px #5ef2b5 }
+.tw-acts { display: flex; gap: 6px }
+.tw-body { position: relative; flex: 1; min-height: 0; padding: 8px 4px 6px 12px }
+.tw-term { position: absolute; inset: 8px 4px 6px 12px; text-transform: none; letter-spacing: normal }
+.tw-term .xterm, .tw-term .xterm-viewport { background: transparent !important }
+.tw-note { position: absolute; top: 12px; left: 14px; font: 11px 'JetBrains Mono', monospace; opacity: 0.6 }
+@media (max-width: 1100px) { .tw, .tw-wide { width: calc(100vw - 32px); left: 16px } }
