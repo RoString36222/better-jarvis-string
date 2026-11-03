@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore, accentFor, type Phase } from '../store'
 
 /**
@@ -51,9 +51,11 @@ const PACE: Record<Phase, number> = {
 }
 
 const MODE: Record<Phase, string> = {
-  offline: 'collapsed',
-  boot: 'collapsed',
-  dormant: 'collapsed',
+  // At rest it is the spindle too, only dimmer and slower — "Hey Zen" swings
+  // the rings round to face you, and thinking threads them out again.
+  offline: 'spindle arc-idle',
+  boot: 'spindle arc-idle',
+  dormant: 'spindle arc-idle',
   waking: 'expanded',
   listening: 'expanded',
   thinking: 'spindle',
@@ -63,11 +65,37 @@ const MODE: Record<Phase, string> = {
 
 const ticks = Array.from({ length: 120 }, (_, i) => i)
 
+/**
+ * Once the thinking spindle is up it stays at least this long. A fast answer
+ * would otherwise flash it for a frame and swing straight back, which reads as
+ * a glitch rather than as thought.
+ */
+const SPINDLE_HOLD_MS = 1500
+
+/** The phase's look, with the thinking spindle held for SPINDLE_HOLD_MS. */
+function useHeldMode(phase: Phase): string {
+  const want = MODE[phase]
+  const [shown, setShown] = useState(want)
+  const since = useRef(performance.now())
+  useEffect(() => {
+    if (want === shown) return
+    const thinking = shown === 'spindle'
+    const wait = thinking ? SPINDLE_HOLD_MS - (performance.now() - since.current) : 0
+    const t = setTimeout(() => {
+      since.current = performance.now()
+      setShown(want)
+    }, Math.max(0, wait))
+    return () => clearTimeout(t)
+  }, [want, shown])
+  return shown
+}
+
 export function ArcReactor() {
   const root = useRef<HTMLDivElement>(null)
   const phase = useStore((s) => s.phase)
   const ui = useStore((s) => s.ui)
   const blades = useStore((s) => s.blades.length)
+  const mode = useHeldMode(phase)
 
   useEffect(() => {
     let raf = 0
@@ -99,7 +127,7 @@ export function ArcReactor() {
   return (
     <div
       ref={root}
-      className={`arc arc-${MODE[phase]}${blades ? ' arc-dim' : ''}`}
+      className={`arc arc-${mode}${blades ? ' arc-dim' : ''}`}
       style={{
         ['--arc-accent' as string]: accent,
         ['--arc-scale' as string]: ui.reactor.scale,
