@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore, type Blade } from '../store'
+import { useSettings } from '../lib/settings'
 
 /**
  * The strip of controls along the top right: HISTORY, TIDY, CLEAR VIEW, CAMERA.
@@ -99,6 +100,9 @@ export function Toolbar() {
         title="Weather, your day, and anything firing"
       >
         BRIEF
+      </button>
+      <button className="tb-btn" onClick={() => useSettings.getState().setOpen(true)} title="Settings" aria-label="Settings">
+        ⚙
       </button>
       <button className={`tb-btn${cameraOpen ? ' tb-on' : ''}`} onClick={toggleCamera} title="Camera">
         CAMERA

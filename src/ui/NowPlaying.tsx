@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BRIDGE_HTTP_URL } from '../config'
+import { useSettings } from '../lib/settings'
 
 /**
  * The music player: what Spotify is playing, with seek and transport, drawn
@@ -42,11 +43,14 @@ export function NowPlaying() {
   const [pos, setPos] = useState(0)
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [dragging, setDragging] = useState<number | null>(null)
+  const showPicks = useSettings((s) => s.settings.show.picks)
+  const lyricsByDefault = useSettings((s) => s.settings.lyricsByDefault)
   const [showLyrics, setShowLyrics] = useState(() => {
     try {
-      return localStorage.getItem('zen.lyrics') === '1'
+      const v = localStorage.getItem('zen.lyrics')
+      return v === null ? lyricsByDefault : v === '1'
     } catch {
-      return false
+      return lyricsByDefault
     }
   })
   useEffect(() => {
@@ -149,10 +153,7 @@ export function NowPlaying() {
           transition={{ type: 'spring', stiffness: 260, damping: 28 }}
         >
           {showLyrics && <Lyrics media={media} position={shown} />}
-          <div className="np-side">
-            <Recs media={media} />
-            <ForYou />
-          </div>
+
           <div className={`np${playing ? ' np-playing' : ''}`}>
           <span className="pk pk-tl" />
           <span className="pk pk-tr" />
@@ -238,6 +239,7 @@ export function NowPlaying() {
               </svg>
             </button>
           </div>
+          {showPicks && <PlayerPicks media={media} />}
           </div>
         </motion.div>
       )}
@@ -309,25 +311,43 @@ function Lyrics({ media, position }: { media: Media; position: number }) {
 
 type Rec = { title: string; artist: string; art: string | null }
 
-/** Collapsed-or-not, remembered per panel. */
-function useCollapsed(key: string): [boolean, () => void] {
-  const [c, setC] = useState(() => {
-    try {
-      return localStorage.getItem(key) === '1'
-    } catch {
-      return false
+/** Up next: songs in the orbit of what is playing (Deezer artist radio). */
+function useUpNext(media: Media): Rec[] {
+  const [recs, setRecs] = useState<Rec[]>([])
+  const key = `${media.title}|${media.artist}`
+  useEffect(() => {
+    let alive = true
+    const q = new URLSearchParams({ artist: media.artist ?? '', title: media.title ?? '' })
+    fetch(`${BRIDGE_HTTP_URL}/music/recs?${q}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: Rec[]) => alive && setRecs(Array.isArray(d) ? d : []))
+      .catch(() => alive && setRecs([]))
+    return () => {
+      alive = false
     }
-  })
-  const toggle = () =>
-    setC((v) => {
-      try {
-        localStorage.setItem(key, v ? '0' : '1')
-      } catch {
-        /* storage blocked */
-      }
-      return !v
-    })
-  return [c, toggle]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return recs
+}
+
+/** For you: from the user's own top artists on Spotify lately. */
+function useForYou(): { tracks: Rec[]; basedOn?: string[] } {
+  const [data, setData] = useState<{ tracks: Rec[]; basedOn?: string[] }>({ tracks: [] })
+  useEffect(() => {
+    let alive = true
+    const load = () =>
+      fetch(`${BRIDGE_HTTP_URL}/music/foryou`)
+        .then((r) => (r.ok ? r.json() : { tracks: [] }))
+        .then((d) => alive && setData({ tracks: d.tracks ?? [], basedOn: d.basedOn }))
+        .catch(() => {})
+    void load()
+    const t = setInterval(load, 30 * 60_000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [])
+  return data
 }
 
 /** The login state, re-read on focus — a login in another tab must show here. */
@@ -351,15 +371,52 @@ function useSpotifyLogin() {
   return { login, refresh }
 }
 
+const remembered = (key: string, fallback: string) => {
+  try {
+    return localStorage.getItem(key) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+const remember = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* storage blocked */
+  }
+}
+
 /**
- * A collapsible list of songs; tapping one plays it in Spotify in the
- * background (needs the Spotify login, offered here when missing).
+ * Inside the player, under the controls: [UP NEXT] [FOR YOU] tabs over a
+ * strip of album tiles. Tapping a tile plays it in Spotify in the background;
+ * tapping the open tab (or the chevron) folds the strip away.
  */
-function PickPanel({ title, tracks, storageKey }: { title: string; tracks: Rec[]; storageKey: string }) {
-  const [collapsed, toggle] = useCollapsed(storageKey)
+function PlayerPicks({ media }: { media: Media }) {
+  const upNext = useUpNext(media)
+  const forYou = useForYou()
   const { login, refresh } = useSpotifyLogin()
+  const [tab, setTab] = useState<'next' | 'you'>(() => (remembered('zen.picks.tab', 'next') === 'you' ? 'you' : 'next'))
+  const [collapsed, setCollapsed] = useState(() => remembered('zen.picks.collapsed', '0') === '1')
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState('')
+
+  const pick = (t: 'next' | 'you') => {
+    if (t === tab && !collapsed) {
+      setCollapsed(true)
+      remember('zen.picks.collapsed', '1')
+      return
+    }
+    setTab(t)
+    setCollapsed(false)
+    remember('zen.picks.tab', t)
+    remember('zen.picks.collapsed', '0')
+  }
+  const flip = () => {
+    setCollapsed((c) => {
+      remember('zen.picks.collapsed', c ? '0' : '1')
+      return !c
+    })
+  }
 
   const play = async (r: Rec) => {
     setBusy(r.title)
@@ -373,14 +430,11 @@ function PickPanel({ title, tracks, storageKey }: { title: string; tracks: Rec[]
       if (res.status === 409) {
         await refresh()
         setNote('Log in with Spotify to play picks.')
-      } else if (!res.ok) {
-        setNote(`Couldn't find “${r.title}” on Spotify.`)
-      }
+      } else if (!res.ok) setNote(`Couldn't find “${r.title}” on Spotify.`)
     } finally {
       setBusy(null)
     }
   }
-
   const startLogin = () => {
     window.open(`${BRIDGE_HTTP_URL}/spotify/login`, '_blank', 'width=520,height=720')
     let n = 0
@@ -390,37 +444,42 @@ function PickPanel({ title, tracks, storageKey }: { title: string; tracks: Rec[]
     }, 3000)
   }
 
-  if (!tracks.length) return null
+  const tracks = tab === 'next' ? upNext : forYou.tracks
+  if (!upNext.length && !forYou.tracks.length) return null
   return (
-    <div className={`np-panel np-recs${collapsed ? ' np-collapsed' : ''}`}>
-      <button className="np-panel-head np-collapse" onClick={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show' : 'Hide'}>
-        <span>{title}</span>
-        <span className="np-chev">{collapsed ? '▸' : '▾'}</span>
-      </button>
+    <div className={`npk${collapsed ? ' npk-collapsed' : ''}`}>
+      <div className="npk-tabs">
+        <button className={`npk-tab${tab === 'next' && !collapsed ? ' npk-on' : ''}`} onClick={() => pick('next')} disabled={!upNext.length}>
+          UP NEXT
+        </button>
+        <button className={`npk-tab${tab === 'you' && !collapsed ? ' npk-on' : ''}`} onClick={() => pick('you')} disabled={!forYou.tracks.length}>
+          FOR YOU
+        </button>
+        <span className="npk-from">
+          {!collapsed && (tab === 'next' ? `like ${media.artist ?? ''}` : forYou.basedOn?.length ? `from ${forYou.basedOn.slice(0, 2).join(', ')}` : '')}
+        </span>
+        <button className="npk-chev" onClick={flip} aria-expanded={!collapsed} title={collapsed ? 'Show picks' : 'Hide picks'}>
+          {collapsed ? '▸' : '▾'}
+        </button>
+      </div>
       {!collapsed && (
         <>
-          <div className="np-recs-list">
+          <div className="npk-strip">
             {tracks.map((r) => (
-              <button key={`${r.title}|${r.artist}`} className="np-rec" onClick={() => void play(r)} disabled={busy !== null}>
-                {r.art ? (
-                  <img src={`${BRIDGE_HTTP_URL}/img?url=${encodeURIComponent(r.art)}`} alt="" />
-                ) : (
-                  <span className="np-rec-noart">♪</span>
-                )}
-                <span className="np-rec-meta">
-                  <span className="np-rec-title">{r.title}</span>
-                  <span className="np-rec-artist">{r.artist}</span>
+              <button key={`${r.title}|${r.artist}`} className="npk-tile" onClick={() => void play(r)} disabled={busy !== null} title={`${r.title} — ${r.artist}`}>
+                <span className="npk-art">
+                  {r.art ? <img src={`${BRIDGE_HTTP_URL}/img?url=${encodeURIComponent(r.art)}`} alt="" /> : <span>♪</span>}
+                  <span className="npk-play">{busy === r.title ? '…' : '▶'}</span>
                 </span>
-                <span className="np-rec-play">{busy === r.title ? '…' : '▶'}</span>
+                <span className="npk-title">{r.title}</span>
+                <span className="npk-artist">{r.artist}</span>
               </button>
             ))}
           </div>
           {login && !login.loggedIn && (
             <div className="np-login">
               {login.configured ? (
-                <button className="tb-btn" onClick={startLogin}>
-                  LOG IN WITH SPOTIFY
-                </button>
+                <button className="tb-btn" onClick={startLogin}>LOG IN WITH SPOTIFY</button>
               ) : (
                 <span className="np-dim">Add SPOTIFY_CLIENT_ID to .kimi.env to play picks</span>
               )}
@@ -430,57 +489,5 @@ function PickPanel({ title, tracks, storageKey }: { title: string; tracks: Rec[]
         </>
       )}
     </div>
-  )
-}
-
-/** Up next: songs in the orbit of what is playing (Deezer artist radio). */
-function Recs({ media }: { media: Media }) {
-  const [recs, setRecs] = useState<Rec[]>([])
-  const key = `${media.title}|${media.artist}`
-  useEffect(() => {
-    let alive = true
-    const q = new URLSearchParams({ artist: media.artist ?? '', title: media.title ?? '' })
-    fetch(`${BRIDGE_HTTP_URL}/music/recs?${q}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d: Rec[]) => alive && setRecs(Array.isArray(d) ? d : []))
-      .catch(() => alive && setRecs([]))
-    return () => {
-      alive = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return (
-    <PickPanel
-      title={`UP NEXT · LIKE ${String(media.artist ?? '').toUpperCase()}`}
-      tracks={recs}
-      storageKey="zen.upnext.collapsed"
-    />
-  )
-}
-
-/** For you: from the user's own top artists on Spotify lately. */
-function ForYou() {
-  const [data, setData] = useState<{ tracks: Rec[]; basedOn?: string[] }>({ tracks: [] })
-  useEffect(() => {
-    let alive = true
-    const load = () =>
-      fetch(`${BRIDGE_HTTP_URL}/music/foryou`)
-        .then((r) => (r.ok ? r.json() : { tracks: [] }))
-        .then((d) => alive && setData({ tracks: d.tracks ?? [], basedOn: d.basedOn }))
-        .catch(() => {})
-    void load()
-    const t = setInterval(load, 30 * 60_000)
-    return () => {
-      alive = false
-      clearInterval(t)
-    }
-  }, [])
-  const from = data.basedOn?.slice(0, 2).join(', ')
-  return (
-    <PickPanel
-      title={`FOR YOU${from ? ` · FROM ${from.toUpperCase()}` : ''}`}
-      tracks={data.tracks}
-      storageKey="zen.foryou.collapsed"
-    />
   )
 }

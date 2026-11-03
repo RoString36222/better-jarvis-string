@@ -8,6 +8,8 @@ import { ArcReactor } from './ArcReactor'
 import { NowPlaying } from './NowPlaying'
 import { TerminalWindow } from './TerminalWindow'
 import { Approval } from './Approval'
+import { SettingsPanel } from './SettingsPanel'
+import { useSettings, themePalette } from '../lib/settings'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
@@ -186,6 +188,24 @@ export function Hud() {
   // variable on the root carries a theme change into every .hud-* rule without
   // a single component knowing a theme exists.
   const colour = accentFor(phase, ui)
+  const settings = useSettings((s) => s.settings)
+  const applyUi = useStore((s) => s.applyUi)
+  // Settings onto the live interface — and back on after "reset yourself",
+  // which empties the palette: a reset returns to the user's theme.
+  const paletteEmpty = Object.keys(ui.palette).length === 0
+  useEffect(() => {
+    applyUi({
+      palette: themePalette(settings.theme),
+      reactor: { scale: settings.reactorScale },
+      chrome: {
+        systems: settings.show.systems,
+        transcript: settings.show.transcript,
+        suggestions: settings.show.suggestions,
+        brand: settings.show.brand,
+        toolBadge: settings.show.toolBadge,
+      },
+    })
+  }, [settings, paletteEmpty, applyUi])
 
   useEffect(() => {
     // The ground has to be set on the document, not painted here: the HUD sits
@@ -198,7 +218,10 @@ export function Hud() {
   }, [ui.background])
 
   return (
-    <div className="hud" style={{ ['--accent' as string]: colour }}>
+    <div
+      className="hud"
+      style={{ ['--accent' as string]: colour, ['--accent2' as string]: settings.theme.secondary }}
+    >
       {/* First in the tree on purpose. Everything after it is positioned with
           `z-index: auto`, so paint order is document order and the sweep stays
           behind the transcript and the panels without a z-index war. */}
@@ -209,6 +232,7 @@ export function Hud() {
       <NowPlaying />
       <TerminalWindow />
       <Approval />
+      <SettingsPanel />
 
       <Corner at="tl" />
       <Corner at="tr" />

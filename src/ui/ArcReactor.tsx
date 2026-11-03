@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, accentFor, type Phase } from '../store'
+import { useSettings } from '../lib/settings'
 
 /**
  * The centre: a HUD reactor of concentric arcs, drawn crisp in SVG.
@@ -96,6 +97,7 @@ export function ArcReactor() {
   const ui = useStore((s) => s.ui)
   const blades = useStore((s) => s.blades.length + (s.terminalOpen ? 1 : 0))
   const mode = useHeldMode(phase)
+  const secondary = useSettings((s) => s.settings.theme.secondary)
 
   useEffect(() => {
     let raf = 0
@@ -130,6 +132,7 @@ export function ArcReactor() {
       className={`arc arc-${mode}${blades ? ' arc-dim' : ''}`}
       style={{
         ['--arc-accent' as string]: accent,
+        ['--arc-accent2' as string]: secondary,
         ['--arc-scale' as string]: ui.reactor.scale,
         ['--arc-glow' as string]: ui.reactor.intensity,
       }}

@@ -6,6 +6,7 @@ import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { instantAnswer } from './lib/instant'
+import { currentSettings } from './lib/settings'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
@@ -55,7 +56,6 @@ const AWAIT_SPEECH_MS = 14000
 /** After an answer, how long the mic stays open for a follow-up before he
  *  drops back to standby. Long enough that you don't have to say the name
  *  again to continue a thought. */
-const FOLLOW_UP_MS = 7000
 
 /** What the BRIEF button and the morning briefing ask. */
 const BRIEFING_PROMPT =
@@ -174,7 +174,7 @@ export default function App() {
           speaker.current = null
           sfx.duck(false)
           music.duck(false)
-          listen(FOLLOW_UP_MS)
+          listen(currentSettings().followUpSec * 1000)
         }
       }
       return
@@ -256,7 +256,7 @@ export default function App() {
         music.working(false)
         // Stay open. Having to say his name again to add one more sentence is
         // the difference between a conversation and a vending machine.
-        listen(FOLLOW_UP_MS)
+        listen(currentSettings().followUpSec * 1000)
       }
     }
   }

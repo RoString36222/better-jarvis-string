@@ -153,6 +153,8 @@ const WHISPER_PHANTOMS =
 const LOCAL_TTS_URL = (process.env.LOCAL_TTS_URL || '').replace(/\/+$/, '') || null
 const LOCAL_TTS_MODEL = process.env.LOCAL_TTS_MODEL || 'prince-canuma/Kokoro-82M'
 const LOCAL_TTS_VOICE = process.env.LOCAL_TTS_VOICE || 'bm_george'
+/** A voice the page may pick per sentence (Settings → Voice). */
+const KOKORO_VOICE_ID = /^[ab][mf]_[a-z]+$/
 
 /** Local whisper.cpp server for speech-to-text, started by start-kimi.sh. */
 const WHISPER_URL = (process.env.WHISPER_URL || '').replace(/\/+$/, '') || null
@@ -1066,8 +1068,9 @@ const handleRequest = async (req, res) => {
     // Inside a try: this handler is async with nothing catching its rejection,
     // so a malformed body used to take the entire bridge down with it.
     let text
+    let voice
     try {
-      ;({ text } = JSON.parse(body || '{}'))
+      ;({ text, voice } = JSON.parse(body || '{}'))
     } catch {
       res.writeHead(400, cors)
       return res.end('bad json')
@@ -1084,9 +1087,9 @@ const handleRequest = async (req, res) => {
           body: JSON.stringify({
             model: LOCAL_TTS_MODEL,
             input: text,
-            voice: LOCAL_TTS_VOICE,
+            voice: KOKORO_VOICE_ID.test(String(voice ?? '')) ? voice : LOCAL_TTS_VOICE,
             // Kokoro's language from the voice id: bm_/bf_ British, else American.
-            lang_code: /^b[mf]_/.test(LOCAL_TTS_VOICE) ? 'b' : 'a',
+            lang_code: /^b[mf]_/.test(KOKORO_VOICE_ID.test(String(voice ?? '')) ? voice : LOCAL_TTS_VOICE) ? 'b' : 'a',
             speed: 1.05,
             response_format: 'mp3',
           }),

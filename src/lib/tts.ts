@@ -7,6 +7,7 @@ import {
   BRIDGE_HTTP_URL,
 } from '../config'
 import * as kokoro from './kokoro'
+import { currentSettings, VOICES } from './settings'
 import { caps } from './capabilities'
 
 /**
@@ -244,7 +245,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
  *  always naming a speechSynthesis voice that a cloud or neural engine has
  *  quietly replaced. */
 export function currentVoiceName(): string {
-  if (USE_ELEVENLABS || caps().tts) return caps().voice ?? 'ElevenLabs'
+  if (USE_ELEVENLABS || caps().tts) return caps().voice?.startsWith('Kokoro') ? VOICES[currentSettings().voice]?.split(' — ')[0] ?? currentSettings().voice : caps().voice ?? 'ElevenLabs'
   if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) {
     return KOKORO_VOICE.replace(/^bm_/, '')
   }
@@ -744,7 +745,7 @@ async function fetchCloudAudio(text: string): Promise<string | null> {
       const res = await fetch(`${BRIDGE_HTTP_URL}/tts`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: currentSettings().voice }),
       })
       if (res.ok) return URL.createObjectURL(await res.blob())
     } catch {
