@@ -11,7 +11,11 @@ Say **"Hey Zen"**, or type in the box at the bottom.
   with the voice.
 - **Local Whisper hearing** (whisper.cpp, large-v3-turbo, ~0.25 s per phrase)
   with live words as you speak — works in every browser, Brave and Opera included.
-- **Kokoro voice** — a neural voice that runs locally in the browser.
+- **Kokoro voice on the Mac** (mlx-audio server, ~0.2 s per sentence) — no
+  longer depends on the browser having WebGPU.
+- **Instant answers** for maths, time, date and unit conversions (~50 ms, no model call).
+- **Barge-in by words, not loudness** — "stop", "wait", "Zen…" interrupt; its own
+  voice through the speakers and background audio do not.
 - **Research wall** — "research X" tiles stat cards, native bar/line charts,
   findings, images and sources from one `research_wall` call.
 - **Memory** — "remember I live in Bengaluru"; facts persist in
@@ -35,6 +39,10 @@ cp .kimi.env.example .kimi.env      # your gateway URL and token
 brew install whisper-cpp            # local speech-to-text
 curl -L -o models/ggml-large-v3-turbo-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+# local voice (Kokoro on the GPU, ~0.2s per sentence)
+uv venv .venv-tts --python 3.12 && uv pip install --python .venv-tts/bin/python \
+  "mlx-audio[server]" "misaki[en]" \
+  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 ./start-kimi.sh                     # http://localhost:5174
 npm run desktop                     # optional: the desktop app, ⌥Space to summon
 ```

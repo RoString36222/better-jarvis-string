@@ -30,9 +30,25 @@ if [ -z "${WHISPER_URL:-}" ] && command -v whisper-server >/dev/null && [ -f "$W
   whisper-server -m "$WHISPER_MODEL" --host 127.0.0.1 --port 8178 --convert \
     -l "${STRING_STT_LANG:-en}" > "${TMPDIR:-/tmp}/string-whisper.log" 2>&1 &
   WHISPER_PID=$!
-  trap 'kill $WHISPER_PID 2>/dev/null' EXIT INT TERM
   export WHISPER_URL="http://127.0.0.1:8178"
   echo "  local Whisper starting (pid $WHISPER_PID)"
 fi
+
+# Voice: Kokoro on the Mac's GPU via an mlx-audio server (~0.2s per sentence),
+# when its environment is set up (.venv-tts; see README). Same voice ids as
+# VOICE=…, e.g. bm_george, af_heart.
+if [ -z "${LOCAL_TTS_URL:-}" ] && [ -x .venv-tts/bin/python ]; then
+  .venv-tts/bin/python -m mlx_audio.server --host 127.0.0.1 --port 8179 \
+    > "${TMPDIR:-/tmp}/zen-voice.log" 2>&1 &
+  VOICE_PID=$!
+  export LOCAL_TTS_URL="http://127.0.0.1:8179"
+  export LOCAL_TTS_VOICE="${VOICE:-bm_george}"
+  echo "  local voice starting (pid $VOICE_PID)"
+  # The first sentence loads the model (~9s); pay that now, not mid-answer.
+  ( for i in $(seq 1 60); do curl -s -o /dev/null "$LOCAL_TTS_URL/" && break; sleep 1; done
+    curl -s -o /dev/null -X POST "$LOCAL_TTS_URL/v1/audio/speech" -H 'content-type: application/json' \
+      -d "{\"model\":\"prince-canuma/Kokoro-82M\",\"input\":\"Ready.\",\"voice\":\"$LOCAL_TTS_VOICE\",\"response_format\":\"mp3\"}" ) &
+fi
+trap 'kill ${WHISPER_PID:-} ${VOICE_PID:-} 2>/dev/null' EXIT INT TERM
 
 npm start

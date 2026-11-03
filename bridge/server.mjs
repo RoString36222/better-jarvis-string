@@ -138,6 +138,16 @@ const WATCH_PROMPT =
 const WHISPER_PHANTOMS =
   /^\W*(bye( bye)?|thank you( (very much|so much))?|thanks( for watching)?|you|okay|so|uh+|um+|hmm+|please subscribe|subtitles by[^.]*|\.+)\W*$/i
 
+/**
+ * Local text-to-speech: an mlx-audio server (start-kimi.sh runs it) speaking
+ * with Kokoro on the Mac's GPU, ~0.2s per sentence. Used when there is no
+ * ElevenLabs key; it replaced in-browser Kokoro, which silently fell back to
+ * the robotic system voice wherever the browser had no WebGPU.
+ */
+const LOCAL_TTS_URL = (process.env.LOCAL_TTS_URL || '').replace(/\/+$/, '') || null
+const LOCAL_TTS_MODEL = process.env.LOCAL_TTS_MODEL || 'prince-canuma/Kokoro-82M'
+const LOCAL_TTS_VOICE = process.env.LOCAL_TTS_VOICE || 'bm_george'
+
 /** Local whisper.cpp server for speech-to-text, started by start-kimi.sh. */
 const WHISPER_URL = (process.env.WHISPER_URL || '').replace(/\/+$/, '') || null
 
@@ -810,7 +820,14 @@ const handleRequest = async (req, res) => {
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
     // Local Whisper counts for hearing: the VAD + /stt path works in every
     // browser, including the ones that block SpeechRecognition (Brave, Opera).
-    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven || Boolean(WHISPER_URL) }))
+    return res.end(
+      JSON.stringify({
+        ok: true,
+        tts: eleven || Boolean(LOCAL_TTS_URL),
+        stt: eleven || Boolean(WHISPER_URL),
+        voice: eleven ? 'ElevenLabs' : LOCAL_TTS_URL ? `Kokoro ${LOCAL_TTS_VOICE}` : null,
+      }),
+    )
   }
 
   // Serve local image files to the page. Screenshots and generated art land on
@@ -934,9 +951,9 @@ const handleRequest = async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/tts') {
     const key = elevenKey()
-    if (!key) {
+    if (!key && !LOCAL_TTS_URL) {
       res.writeHead(503, cors)
-      return res.end('no elevenlabs key')
+      return res.end('no elevenlabs key and no local voice')
     }
     // A spoken line is a few hundred bytes. Anything approaching this is not a
     // sentence, and buffering it unbounded would let one request eat the heap.
@@ -967,6 +984,33 @@ const handleRequest = async (req, res) => {
       res.writeHead(400, cors)
       return res.end('no text')
     }
+    if (!key) {
+      try {
+        const upstream = await fetch(`${LOCAL_TTS_URL}/v1/audio/speech`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: LOCAL_TTS_MODEL,
+            input: text,
+            voice: LOCAL_TTS_VOICE,
+            // Kokoro's language from the voice id: bm_/bf_ British, else American.
+            lang_code: /^b[mf]_/.test(LOCAL_TTS_VOICE) ? 'b' : 'a',
+            speed: 1.05,
+            response_format: 'mp3',
+          }),
+          signal: AbortSignal.timeout(30_000),
+        })
+        if (!upstream.ok) throw new Error(`local voice answered ${upstream.status}`)
+        res.writeHead(200, { ...cors, 'content-type': 'audio/mpeg', 'cache-control': 'no-cache' })
+        for await (const chunk of upstream.body) res.write(Buffer.from(chunk))
+        return res.end()
+      } catch (err) {
+        console.error('[jarvis] local voice failed:', err?.message ?? err)
+        res.writeHead(502, cors)
+        return res.end('local voice failed')
+      }
+    }
+
     try {
       const upstream = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream` +
@@ -1073,6 +1117,8 @@ const handleRequest = async (req, res) => {
         // Whisper's other tell: on noise it invents a stock phrase from its
         // training data (YouTube outros). Alone, these are never a request.
         if (WHISPER_PHANTOMS.test(text)) text = ''
+        // ...and its repetition loop on noise: one phrase three times running.
+        if (/(\b[\w' ]{3,40}?[.!?,]?)\s+\1\s+\1/i.test(text)) text = ''
         if (!req.headers['x-partial']) {
           console.log(`[jarvis] stt whisper ${Date.now() - t0}ms "${text.slice(0, 60)}"`)
         }
@@ -1168,6 +1214,7 @@ console.log(
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] web search via ${searchSource()} · ${memoryCount()} saved memories`)
 if (WATCH_MINUTES) console.log(`[jarvis] proactive check every ${WATCH_MINUTES} min`)
+console.log(`[jarvis] voice via ${elevenKey() ? 'ElevenLabs' : LOCAL_TTS_URL ? `local Kokoro ${LOCAL_TTS_VOICE} (${LOCAL_TTS_URL})` : 'the browser'}`)
 console.log(`[jarvis] hearing via ${elevenKey() ? 'ElevenLabs Scribe' : WHISPER_URL ? `local Whisper (${WHISPER_URL})` : 'browser speech recognition'}`)
 if (FAST_MODEL) console.log(`[jarvis] fast model ${FAST_MODEL} for face commands and small talk`)
 console.log(

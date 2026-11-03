@@ -357,6 +357,8 @@ export const diag = {
   waitedMs: 0,
   /** Barge-ins suppressed because he had only just started the sentence. */
   selfGuarded: 0,
+  /** Times he was cut off by words addressed to him (stop, wait, zen…). */
+  bargeIns: 0,
   /** Transcription failures (network, or the bridge speech proxy). */
   restarts: 0,
   /** Milliseconds the last transcription round-trip took. */
@@ -478,6 +480,17 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         return
       }
 
+      // Over his own answer, only words addressed to him count; anything else
+      // is the room (a video, a conversation) or his voice mangled past the
+      // echo check.
+      if (mode === 'guard') {
+        if (!OVERRIDE.test(said)) {
+          drop(`over his answer, not addressed to him: "${said.slice(0, 40)}"`)
+          return
+        }
+        h.onSpeechStart()
+      }
+
       diag.heard = said
       diag.heardAt = Date.now()
 
@@ -535,13 +548,14 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       // The barge-in. In guard mode the user has started talking over him, and
       // because the guard threshold is high this is a real interruption rather
       // than leaked playback — so cut him off now, do not wait for the words.
+      // No barge-in on loudness. Through speakers the loudest thing the
+      // microphone hears while he talks is HIM, and cutting off on energy
+      // meant he interrupted himself, then answered his own words, in a loop.
+      // A barge-in now has to be words addressed to him — see onProgress and
+      // the guard branch in transcribe().
       if (mode === 'guard') {
         const since = speakingSince()
-        if (since && Date.now() - since < SELF_GUARD_MS) {
-          diag.selfGuarded++
-          return
-        }
-        h.onSpeechStart()
+        if (since && Date.now() - since < SELF_GUARD_MS) diag.selfGuarded++
       }
     },
     onEnd: (blob) => {
@@ -556,7 +570,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       // until the words contain the wake phrase, so room chatter never
       // appears on screen.
       const mode = h.mode()
-      if (mode !== 'command' && mode !== 'wake') return
+      if (mode !== 'command' && mode !== 'wake' && mode !== 'guard') return
       if (liveBusy || assemble.held()) return
       liveBusy = true
       const seq = liveSeq
@@ -569,7 +583,17 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         .then((out: { text?: string } | null) => {
           const text = (out?.text ?? '').trim()
           if (!text || seq !== liveSeq) return
-          if (h.mode() === 'wake' && !WAKE.test(text)) return
+          const now = h.mode()
+          if (now === 'guard') {
+            // "Stop", "wait", "Zen…" over his answer: cut him off now, without
+            // waiting for the segment to end (it may not, while he talks).
+            if (OVERRIDE.test(text) && !isEcho(text, speakingNow())) {
+              diag.bargeIns++
+              h.onSpeechStart()
+            }
+            return
+          }
+          if (now === 'wake' && !WAKE.test(text)) return
           live = text
           h.onPartial(text)
         })

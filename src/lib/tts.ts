@@ -51,7 +51,7 @@ let recentUntil = 0
 
 /** Recognition lags the speakers by a few hundred milliseconds, so a sentence
  *  keeps arriving at the microphone well after it has finished playing. */
-const ECHO_TAIL_MS = 1800
+const ECHO_TAIL_MS = 3000
 
 /**
  * Why you cannot hear him.
@@ -244,7 +244,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
  *  always naming a speechSynthesis voice that a cloud or neural engine has
  *  quietly replaced. */
 export function currentVoiceName(): string {
-  if (USE_ELEVENLABS || caps().tts) return 'ElevenLabs'
+  if (USE_ELEVENLABS || caps().tts) return caps().voice ?? 'ElevenLabs'
   if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) {
     return KOKORO_VOICE.replace(/^bm_/, '')
   }

@@ -20,6 +20,8 @@ import { BACKEND, BRIDGE_HTTP_URL, env } from '../config'
 export type Capabilities = {
   /** ElevenLabs speech-to-text (Scribe) is reachable via the bridge. */
   stt: boolean
+  /** The bridge's voice, by name, when it speaks (tts). */
+  voice?: string | null
   /** ElevenLabs text-to-speech is reachable via the bridge. */
   tts: boolean
 }
@@ -56,8 +58,8 @@ export async function probeCapabilities(): Promise<Capabilities> {
       signal: AbortSignal.timeout(3000),
     })
     if (res.ok) {
-      const h = (await res.json()) as { stt?: boolean; tts?: boolean }
-      current = { stt: Boolean(h.stt), tts: Boolean(h.tts) }
+      const h = (await res.json()) as { stt?: boolean; tts?: boolean; voice?: string | null }
+      current = { stt: Boolean(h.stt), tts: Boolean(h.tts), voice: h.voice ?? null }
     }
   } catch {
     // Bridge down or slow — stay on the browser engines rather than blocking

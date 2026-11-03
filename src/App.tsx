@@ -5,6 +5,7 @@ import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
+import { instantAnswer } from './lib/instant'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
@@ -53,7 +54,7 @@ const AWAIT_SPEECH_MS = 14000
 /** After an answer, how long the mic stays open for a follow-up before he
  *  drops back to standby. Long enough that you don't have to say the name
  *  again to continue a thought. */
-const FOLLOW_UP_MS = 11000
+const FOLLOW_UP_MS = 7000
 
 /** What the BRIEF button and the morning briefing ask. */
 const BRIEFING_PROMPT =
@@ -140,12 +141,33 @@ export default function App() {
     s.clearBlades()
     s.setCaption('')
     s.pushTurn({ id: newId(), role: 'user', text: said })
-    s.setPhase('thinking')
 
     const spk = createSpeaker()
     speaker.current = spk
     sfx.duck(true)
     music.duck(true)
+
+    // Maths, the time, the date, unit conversions: answered here in a few
+    // milliseconds instead of a round trip to the model (see lib/instant.ts).
+    const quick = instantAnswer(said)
+    if (quick) {
+      s.setPhase('speaking')
+      s.pushTurn({ id: newId(), role: 'jarvis', text: quick })
+      spk.push(quick)
+      try {
+        await spk.end()
+      } finally {
+        if (!stale()) {
+          speaker.current = null
+          sfx.duck(false)
+          music.duck(false)
+          listen(FOLLOW_UP_MS)
+        }
+      }
+      return
+    }
+
+    s.setPhase('thinking')
 
     const turnId = newId()
     let started = false
