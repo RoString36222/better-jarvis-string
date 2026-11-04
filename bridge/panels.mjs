@@ -537,7 +537,7 @@ export function displayServer(emit, emitBlade) {
         'For "tell me about / show me / what is X" when X is something people love to look at — armour, a car, ' +
           'a character, a building, a place, a gadget, an animal. ONE call: finds the facts and 4-6 pictures in ' +
           'parallel and puts the pictures on screen immediately. Then call research_wall once with the detail cards.',
-        { subject: z.string().describe('What to show, 2-5 words, e.g. "Iron Man Mark VII armor".') },
+        { subject: z.string().describe('The thing itself, by name, 2-5 words, e.g. "Iron Man Mark VII armor" or "Spider-Man suit" — no "best / most stylish / top" words.') },
         async ({ subject }) => {
           const q = String(subject ?? '').trim()
           if (!q) return refuse('Nothing to show.')
@@ -545,19 +545,27 @@ export function displayServer(emit, emitBlade) {
           // finds almost nothing where "Iron Man armor" finds plenty. So the
           // subject, then shorter versions of it, in parallel; and a picture
           // counts only if its title shares a real word with the subject.
-          const words = q.split(/\s+/)
-          const variants = [...new Set([q, words.slice(0, -1).join(' '), words.slice(0, 2).join(' ')].filter((v) => v.split(' ').length >= 2 || v === q))]
+          // Qualifiers ("most stylish", "best", "top 10") describe what the user
+          // wants to hear about, not what the pictures are of — searched or
+          // matched, they pull in "Lokmat Most Stylish Awards" for Spider-Man.
+          const QUALIFIERS = new Set(['most', 'best', 'top', 'stylish', 'coolest', 'cool', 'famous', 'popular', 'new', 'newest', 'latest', 'greatest', 'iconic', 'design', 'designs', 'different', 'all', 'every', 'types', 'type', 'kinds', 'list', 'ever', 'good', 'great', 'beautiful', 'amazing', 'pictures', 'photos', 'images'])
+          const fold = (w) => w.toLowerCase().replace(/[^a-z0-9]/g, '')
+          const core = q.split(/\s+/).filter((w) => !QUALIFIERS.has(fold(w)) && !/^\d+$/.test(w))
+          const words = core.length ? core : q.split(/\s+/)
+          const base = words.join(' ')
+          const variants = [...new Set([base, words.slice(0, -1).join(' '), words.slice(0, 2).join(' ')].filter((v) => v.split(' ').length >= 2 || v === base))]
           const [wiki, ...found] = await Promise.all([
             wikipedia(q, 3).catch(() => []),
             ...variants.map((v) => imageSearch(v, 10).catch(() => [])),
           ])
-          const STOP = new Set(['the', 'and', 'for', 'with', 'from', 'suit', 'armor', 'armour', 'photo', 'image'])
-          const key = words.map((w) => w.toLowerCase()).filter((w) => w.length >= 3 && !STOP.has(w))
+          const STOP = new Set(['the', 'and', 'for', 'with', 'from', 'suit', 'suits', 'armor', 'armour', 'photo', 'image'])
+          // Hyphens folded away: "Spider-Man" is one word, matching "Spiderman".
+          const key = words.map(fold).filter((w) => w.length >= 3 && !STOP.has(w))
           // Whole words, and two of them when the subject has two to give:
           // "Englishman" is not "man", and one shared word is chance.
           const need = Math.min(2, key.length)
           const relevant = (title) => {
-            const t = new Set(String(title).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+            const t = new Set(String(title).toLowerCase().replace(/-/g, '').split(/[^a-z0-9]+/).filter(Boolean))
             return need === 0 || key.filter((w) => t.has(w)).length >= need
           }
           const pics = found.flat().filter((p) => relevant(p.title))
