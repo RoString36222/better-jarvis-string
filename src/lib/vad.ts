@@ -1,3 +1,4 @@
+import { currentSettings } from './settings'
 import { getMic } from './audio'
 
 /**
@@ -66,6 +67,12 @@ const RELEASE_RATIO = 0.6
 
 /** Sustained energy for this long confirms speech rather than a knock or click. */
 const START_MS = 110
+/** Noise filter levels: trigger ratio over the floor, and onset length. */
+const NOISE = {
+  normal: { ratio: 1, hold: 1 },
+  strong: { ratio: 1.5, hold: 1.7 },
+  max: { ratio: 2.2, hold: 2.4 },
+} as const
 /**
  * Quiet for this long ends the SEGMENT — which is no longer the same thing as
  * ending the turn.
@@ -224,7 +231,10 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
       floor = Math.max(floor, 0.0015)
     }
 
-    threshold = floor * TRIGGER_OVER_FLOOR * (guard ? GUARD_BOOST : 1)
+    // Settings → Listening → Noise filter: how far over the room's own noise,
+    // and for how long, a sound must be before it counts as speech.
+    const strict = NOISE[currentSettings().noiseFilter] ?? NOISE.normal
+    threshold = floor * TRIGGER_OVER_FLOOR * strict.ratio * (guard ? GUARD_BOOST : 1)
     const release = threshold * RELEASE_RATIO
     const now = performance.now()
 
@@ -236,7 +246,7 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
           // a blip, the recorder is discarded and nothing was lost.
           armedAt = now
           startRecorder()
-        } else if (now - armedAt >= START_MS) {
+        } else if (now - armedAt >= START_MS * strict.hold) {
           // Confirmed. This is the moment barge-in fires.
           speaking = true
           speechStartedAt = armedAt

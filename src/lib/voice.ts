@@ -1,6 +1,7 @@
 import { BRIDGE_HTTP_URL } from '../config'
 import { getMic } from './audio'
 import { speakingNow, speakingSince } from './tts'
+import { currentSettings } from './settings'
 import { startVad, type Vad } from './vad'
 import { caps } from './capabilities'
 
@@ -561,6 +562,9 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
     onEnd: (blob) => {
       live = ''
       liveSeq++
+      // Push-to-talk: at rest nothing is transcribed at all — the room's
+      // voices never reach Whisper, so they can never wake ZEN.
+      if (h.mode() === 'wake' && !currentSettings().wakeWord) return
       pendingAudio.push(blob)
       void drain()
     },
@@ -571,6 +575,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       // appears on screen.
       const mode = h.mode()
       if (mode !== 'command' && mode !== 'wake' && mode !== 'guard') return
+      if (mode === 'wake' && !currentSettings().wakeWord) return
       if (liveBusy || assemble.held()) return
       liveBusy = true
       const seq = liveSeq

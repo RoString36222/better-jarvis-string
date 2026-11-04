@@ -1,3 +1,4 @@
+import { useSettings } from '../lib/settings'
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../store'
@@ -29,6 +30,7 @@ const ROTATE_MS = 4200
 export function Suggestions() {
   const phase = useStore((s) => s.phase)
   const turns = useStore((s) => s.turns)
+  const wake = useSettings((s) => s.settings.wakeWord)
   const [i, setI] = useState(0)
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function Suggestions() {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.35 }}
         >
-          “hey zen, {EXAMPLES[i]}”
+          {wake ? `“hey zen, ${EXAMPLES[i]}”` : `“${EXAMPLES[i]}”`}
         </motion.span>
       </AnimatePresence>
     </div>

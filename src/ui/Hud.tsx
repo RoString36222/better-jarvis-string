@@ -254,7 +254,7 @@ export function Hud() {
                 the right thing to show during boot — as a general fallback a
                 note that never got cleared (a stuck 'voice 97%') sits over
                 LISTENING and PROCESSING for the rest of the session. */}
-            {phase === 'boot' && bootNote ? bootNote : statusText[phase]}
+            {phase === 'boot' && bootNote ? bootNote : phase === 'dormant' && !settings.wakeWord ? 'STANDBY — PRESS SPACE' : statusText[phase]}
           </span>
         </div>
       </header>
@@ -366,7 +366,12 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“hey zen”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
+          {settings.wakeWord && (
+            <>
+              say <b>“hey zen”</b> ·{' '}
+            </>
+          )}
+          <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
           {voice && (
             <>
               {' · '}

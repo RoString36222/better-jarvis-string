@@ -167,6 +167,29 @@ export function SettingsPanel() {
 
               {tab === 'Listening' && (
                 <>
+                  <div className="st-section">How ZEN starts listening</div>
+                  <Toggle
+                    label="“Hey Zen” wake word"
+                    on={settings.wakeWord}
+                    set={(v) => set((s) => ({ ...s, wakeWord: v }))}
+                    hint={settings.wakeWord ? 'say “Hey Zen”, or press Space' : 'push-to-talk: only Space — the room is ignored'}
+                  />
+                  <div className="st-section">Noise filter</div>
+                  <div className="st-seg">
+                    {(['normal', 'strong', 'max'] as const).map((n) => (
+                      <button
+                        key={n}
+                        className={`st-seg-btn${settings.noiseFilter === n ? ' st-seg-on' : ''}`}
+                        onClick={() => set((s) => ({ ...s, noiseFilter: n }))}
+                      >
+                        {n === 'normal' ? 'Normal' : n === 'strong' ? 'Strong' : 'Max'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="st-hint st-para">
+                    Stronger needs a louder, longer sound before it counts as speech — fewer false starts from a TV,
+                    typing or a fan; speak up a little. In a noisy room, push-to-talk is the surest.
+                  </p>
                   <div className="st-section">After an answer, keep listening for</div>
                   <div className="st-row">
                     <input

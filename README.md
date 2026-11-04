@@ -261,7 +261,9 @@ Click **⚙** in the toolbar. Everything applies instantly and is saved on your 
   colours; reactor size.
 - **Voice** — Chatterbox Turbo (most natural) or 9 Kokoro voices, British and
   American, with **▶ Preview**.
-- **Listening** — how long ZEN keeps listening after answering (0–20 s).
+- **Listening** — the “Hey Zen” wake word on or off (off = push-to-talk:
+  Space only, the room is ignored), noise filter (Normal / Strong / Max), and
+  how long ZEN keeps listening after answering (0–20 s).
 - **Interface** — show or hide the brand, systems list, transcript,
   suggestions and activity badge.
 - **Music** — recommendations in the player; lyrics open by default.
@@ -310,7 +312,7 @@ On the command line:
 | Robotic voice | The local voice isn't set up (step 4), or ZEN wasn't restarted after. |
 | "Bridge connection lost" | ZEN is restarting; it reconnects by itself. If it persists, run `./start-kimi.sh` again. |
 | Every answer fails | Check the gateway: `curl -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" $ANTHROPIC_BASE_URL/v1/models` should return 200. |
-| It answers itself / hears the TV | Lower the follow-up window in Settings → Listening, or use headphones. |
+| It picks up the TV or people nearby | Settings → Listening: turn the wake word **off** (push-to-talk with Space) and/or set the noise filter to **Max**; shorten the follow-up window. Headphones help most. |
 | Safari hands say "blocked" | Turn on **Allow JavaScript from Apple Events** ([setup](#zens-hands-in-safari)). |
 
 ---

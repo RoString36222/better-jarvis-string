@@ -1225,7 +1225,7 @@ const handleRequest = async (req, res) => {
         const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'mp4' : type.includes('wav') ? 'wav' : 'webm'
         const form = new FormData()
         form.append('file', new Blob(chunks, { type }), `speech.${ext}`)
-        form.append('response_format', 'json')
+        form.append('response_format', 'verbose_json')
         form.append('temperature', '0.0')
         const t0 = Date.now()
         const r = await fetch(`${WHISPER_URL}/inference`, {
@@ -1236,7 +1236,12 @@ const handleRequest = async (req, res) => {
         if (!r.ok) throw new Error(`whisper answered ${r.status}`)
         const out = await r.json()
         // Whisper's tell for silence and noise: bracketed tags, not words.
-        let text = String(out.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim()
+        // Whisper's own doubt, per segment: drop what it thinks is not speech
+        // or is barely sure of (mumbles, a voice across the room).
+        const kept = Array.isArray(out.segments)
+          ? out.segments.filter((sg) => !(sg.no_speech_prob > 0.6) && !(sg.avg_logprob < -1.0)).map((sg) => sg.text).join(' ')
+          : out.text
+        let text = String(kept ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim()
         // Whisper's other tell: on noise it invents a stock phrase from its
         // training data (YouTube outros). Alone, these are never a request.
         // Sound effects Whisper writes out — *clap*, ♪, (music) — are not words.

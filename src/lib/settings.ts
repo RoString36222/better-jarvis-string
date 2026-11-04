@@ -14,6 +14,10 @@ export type Settings = {
   voice: string
   /** How long ZEN keeps listening after an answer, without the wake word. */
   followUpSec: number
+  /** "Hey Zen" wakes it; off = push-to-talk, Space only, room ignored. */
+  wakeWord: boolean
+  /** How much it takes for sound to count as speech. */
+  noiseFilter: 'normal' | 'strong' | 'max'
   /** Reactor size multiplier. */
   reactorScale: number
   show: {
@@ -56,6 +60,8 @@ export const DEFAULTS: Settings = {
   theme: { preset: 'sapphire', ...PRESETS.sapphire },
   voice: 'chatterbox',
   followUpSec: 7,
+  wakeWord: true,
+  noiseFilter: 'strong',
   reactorScale: 1,
   show: { systems: true, transcript: true, suggestions: true, brand: true, toolBadge: true, picks: true },
   lyricsByDefault: false,
