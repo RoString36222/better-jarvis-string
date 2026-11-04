@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { probeUrl } from './page.mjs'
+import { imageSearch, wikipedia } from './search.mjs'
 
 /**
  * The `display` tool — JARVIS's screen.
@@ -392,7 +393,7 @@ const wallSchema = {
     .array(z.object({ heading: z.coerce.string(), text: z.coerce.string() }))
     .optional()
     .catch(undefined),
-  images: z.array(z.string()).optional().catch(undefined),
+  images: z.array(z.string()).optional().catch(undefined).describe('Picture URLs from image_search; up to 6, the best first.'),
   sources: z
     .array(z.object({ title: z.coerce.string(), url: z.string().optional().catch(undefined) }))
     .optional()
@@ -531,6 +532,66 @@ export function displayServer(emit, emitBlade) {
         return { content: [{ type: 'text', text: `Open on the blades as "${blade.title}".` }] }
       }),
 
+      tool(
+        'showcase',
+        'For "tell me about / show me / what is X" when X is something people love to look at — armour, a car, ' +
+          'a character, a building, a place, a gadget, an animal. ONE call: finds the facts and 4-6 pictures in ' +
+          'parallel and puts the pictures on screen immediately. Then call research_wall once with the detail cards.',
+        { subject: z.string().describe('What to show, 2-5 words, e.g. "Iron Man Mark VII armor".') },
+        async ({ subject }) => {
+          const q = String(subject ?? '').trim()
+          if (!q) return refuse('Nothing to show.')
+          // Picture archives match titles literally: "Iron Man Mark VII armor"
+          // finds almost nothing where "Iron Man armor" finds plenty. So the
+          // subject, then shorter versions of it, in parallel; and a picture
+          // counts only if its title shares a real word with the subject.
+          const words = q.split(/\s+/)
+          const variants = [...new Set([q, words.slice(0, -1).join(' '), words.slice(0, 2).join(' ')].filter((v) => v.split(' ').length >= 2 || v === q))]
+          const [wiki, ...found] = await Promise.all([
+            wikipedia(q, 3).catch(() => []),
+            ...variants.map((v) => imageSearch(v, 10).catch(() => [])),
+          ])
+          const STOP = new Set(['the', 'and', 'for', 'with', 'from', 'suit', 'armor', 'armour', 'photo', 'image'])
+          const key = words.map((w) => w.toLowerCase()).filter((w) => w.length >= 3 && !STOP.has(w))
+          // Whole words, and two of them when the subject has two to give:
+          // "Englishman" is not "man", and one shared word is chance.
+          const need = Math.min(2, key.length)
+          const relevant = (title) => {
+            const t = new Set(String(title).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+            return need === 0 || key.filter((w) => t.has(w)).length >= need
+          }
+          const pics = found.flat().filter((p) => relevant(p.title))
+          // The article's own picture first — it is usually the canonical one.
+          const urls = [...new Set([...wiki.map((w) => w.image).filter(Boolean), ...pics.map((p) => p.url)])]
+          const good = (await workingImages(urls.slice(0, 10))).slice(0, 6)
+          const title = q.toUpperCase().slice(0, 40)
+          good.forEach((url, i) => {
+            emitBlade({
+              id: `s${Date.now().toString(36)}-${(seq++).toString(36)}`,
+              title,
+              kind: 'image',
+              url,
+              size: i === 0 ? 'wide' : 'compact',
+              hold: 'sticky',
+              mode: 'reader',
+            })
+          })
+          const facts = wiki.map((w) => ({ title: w.title, url: w.url, text: String(w.snippet ?? '').slice(0, 1400) }))
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  JSON.stringify({ pictures_on_screen: good.length, facts }, null, 1) +
+                  '\n\nThe pictures are already on screen. Now call research_wall ONCE with 3-4 findings on what ' +
+                  'makes it remarkable, 2-3 stats where the facts give real numbers, and the sources — no images, ' +
+                  'they are shown. Do not search again unless the facts above are clearly about something else.',
+              },
+            ],
+          }
+        },
+      ),
+
       tool('research_wall', WALL_DESCRIPTION, wallSchema, async (args) => {
         const topic = String(args.topic ?? '').trim().toUpperCase() || 'BRIEFING'
         const id = () => `w${Date.now().toString(36)}-${(seq++).toString(36)}`
@@ -557,9 +618,11 @@ export function displayServer(emit, emitBlade) {
             size: 'compact',
           })
         }
-        for (const url of (args.images ?? []).filter((u) => /^https?:\/\//.test(u)).slice(0, 3)) {
-          out.push({ title: topic, kind: 'image', url, size: 'compact' })
-        }
+        // Pictures lead a showcase, and only ones that actually load.
+        const pics = await workingImages((args.images ?? []).filter((u) => /^https?:\/\//.test(u)).slice(0, 6))
+        pics.forEach((url, i) => {
+          out.splice(i, 0, { title: topic, kind: 'image', url, size: i === 0 ? 'wide' : 'compact' })
+        })
         const sources = (args.sources ?? []).slice(0, 8)
         if (sources.length) {
           out.push({

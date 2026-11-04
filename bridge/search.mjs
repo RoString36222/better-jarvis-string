@@ -47,7 +47,7 @@ async function brave(q, n) {
   }))
 }
 
-async function wikipedia(q, n) {
+export async function wikipedia(q, n) {
   const ua = { headers: { 'User-Agent': 'STRING-assistant/1.0 (local voice assistant)' } }
   const found = await get(
     `https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=${n}` +
@@ -144,6 +144,41 @@ names no place, leave \`place\` empty: it defaults to their home city
 (${HOME_CITY}). For one figure put a \`stat\` blade up (e.g. "24°C"); for a
 multi-day forecast a \`line\` chart of the highs works well.`
 
+// ------------------------------------------------------------------ pictures
+
+/**
+ * Several pictures of a subject, for galleries and showcase walls. Serper's
+ * Google Images when there is a key; otherwise Wikimedia Commons — free,
+ * keyless, many photos per subject, at a 960px size Wikimedia actually serves
+ * (arbitrary thumbnail sizes now answer 400).
+ */
+export async function imageSearch(q, n) {
+  if (process.env.SERPER_API_KEY) {
+    const d = await get('https://google.serper.dev/images', {
+      method: 'POST',
+      headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q, num: Math.min(20, n * 2) }),
+    })
+    return (d.images ?? [])
+      .filter((i) => /^https:\/\//.test(i.imageUrl))
+      .slice(0, n)
+      .map((i) => ({ url: i.imageUrl, title: i.title, source: i.source }))
+  }
+  const ua = { headers: { 'User-Agent': 'ZEN-assistant/1.0 (local voice assistant)' } }
+  const d = await get(
+    'https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6' +
+      `&gsrlimit=${Math.min(20, n * 2)}&prop=imageinfo&iiprop=url|mime&iiurlwidth=960` +
+      `&gsrsearch=${encodeURIComponent(`${q} filetype:bitmap`)}`,
+    ua,
+  )
+  return Object.values(d.query?.pages ?? {})
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .map((p) => ({ info: p.imageinfo?.[0], title: String(p.title ?? '').replace(/^File:|\.[a-z]+$/gi, '') }))
+    .filter((x) => x.info && /image\/(jpeg|png|webp)/.test(x.info.mime ?? ''))
+    .slice(0, n)
+    .map((x) => ({ url: x.info.thumburl || x.info.url, title: x.title, source: 'Wikimedia Commons' }))
+}
+
 export const searchSource = () =>
   process.env.SERPER_API_KEY ? 'serper' : process.env.BRAVE_SEARCH_API_KEY ? 'brave' : 'wikipedia'
 
@@ -188,6 +223,22 @@ export function searchServer() {
               isError: true,
               content: [{ type: 'text', text: `Search failed (${source}): ${err?.message ?? err}` }],
             }
+          }
+        },
+      ),
+      tool(
+        'image_search',
+        'Find several pictures of a subject (a suit, car, building, place, person, product). Returns ' +
+          'image URLs ready for a gallery or research_wall. Use 2-4 words, e.g. "Iron Man Mark VII armor".',
+        { query: z.string(), count: z.number().int().min(1).max(10).optional().catch(undefined) },
+        async ({ query, count }) => {
+          try {
+            const images = await imageSearch(String(query ?? '').trim(), count ?? 6)
+            return {
+              content: [{ type: 'text', text: images.length ? JSON.stringify({ images }, null, 1) : `No pictures found for "${query}".` }],
+            }
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text', text: `Picture search failed: ${err?.message ?? err}` }] }
           }
         },
       ),

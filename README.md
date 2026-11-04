@@ -232,7 +232,8 @@ deleting, and password fields. ZEN tells you those are your step.
 | "What's the weather today?" | Live weather (your home city by default) |
 | "What's 15% of 240?" · "Convert 10 km to miles" · "What time is it?" | Answers instantly, no model call |
 | "Research the VR headset market" | A wall of stats, charts, findings and sources |
-| "Tell me about the Taj Mahal" | Answers, and shows a picture |
+| "Tell me about the Iron Man Mark VII suit" | A showcase: pictures first (in seconds), then detail cards and key figures |
+| "Tell me about the Taj Mahal" | Answers, and shows pictures |
 | "Play Night Changes" · "Pause" · "Next song" · "What's playing?" | Spotify, in the background |
 | "Open terminal" / "Open kitty" | A real shell inside ZEN |
 | "Open kitty with Claude Code" · "Ask Claude to explain this repo" | Starts Claude Code in ZEN's terminal and types your message (you approve each one) |
@@ -266,7 +267,7 @@ Click **⚙** in the toolbar. Everything applies instantly and is saved on your 
 |---|---|
 | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` | Use a gateway instead of your Claude login |
 | `SPOTIFY_CLIENT_ID` | Spotify search, play by name, recommendations ([Spotify](#spotify)) |
-| `SERPER_API_KEY` / `BRAVE_SEARCH_API_KEY` | Real web search for research (otherwise Wikipedia) |
+| `SERPER_API_KEY` / `BRAVE_SEARCH_API_KEY` | Real web search (otherwise Wikipedia). Serper also gives Google Images for showcases (otherwise Wikimedia Commons) |
 | `STRING_HOME_CITY` | Default city for weather (default Bengaluru) |
 | `ZEN_HOTKEY` | Desktop app hotkey (default `Alt+Space`) |
 

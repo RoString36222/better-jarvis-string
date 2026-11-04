@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
-import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
+import { openRemote, proxyError, vetTarget, PROXY_UA, uaFor } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
@@ -419,6 +419,8 @@ function describeTool(name, input = {}) {
   }
   const cut = (t, n = 48) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t))
   if (tool === 'weather') return `Checking the weather in ${input.place || process.env.STRING_HOME_CITY || 'Bengaluru'}…`
+  if (tool === 'showcase') return `Pulling up ${cut(input.subject ?? '', 30)}…`
+  if (tool === 'image_search') return `Finding pictures of ${cut(input.query ?? '', 30)}…`
   if (tool === 'web_search' || name === 'WebSearch') return `Searching “${cut(input.query ?? '')}”…`
   if (name === 'WebFetch') return `Reading ${host(input.url)}…`
   if (tool === 'remember') return 'Remembering that…'
@@ -515,10 +517,19 @@ The blades — the ONLY surface:
     a topic, story or explainer worth reading → the single best \`article\`;
     how something moves, sounds or is done → one \`embed\` video, only if a
       search gave you a real YouTube or Vimeo URL.
-  The measure is about one blade per substantive answer, never more than two
-  (a research request gets a \`research_wall\` instead). Open nothing for small
-  talk, maths, yes/no answers, a bare fact with nothing to look at, the time,
-  or a follow-up about what is already on screen; weather gets a \`stat\` card.
+  Match the screen to the question:
+    - small talk, maths, yes/no, the time, a bare fact, a follow-up about what
+      is already on screen → nothing; weather → one \`stat\` card;
+    - a passing mention of something visual → one picture;
+    - "tell me about / show me / what is X" where X is something people love
+      to look at — a suit of armour, a car, a character, a building, a place, a
+      gadget, an animal → a SHOWCASE, in exactly two calls: \`showcase\` (it
+      finds the facts and the pictures at once and puts the pictures up), then
+      ONE \`research_wall\` with 3-4 findings on what makes it remarkable
+      (design, materials, abilities, weapons, history — the details an
+      enthusiast would point out), 2-3 stats when real numbers exist, and
+      sources. No extra searches, no reading-page article for these;
+    - "research / compare / brief me" → a \`research_wall\` as always.
   Never assemble or guess a URL — if no search result carried one, show nothing
   rather than something broken.
 - Blades stack, newest in front, and they can be pulled forward, dragged,
@@ -722,7 +733,7 @@ async function proxyRemote(req, res, cors, { kinds, maxBytes, timeoutMs, ranged 
   const target = vetTarget(asked)
 
   const headers = {
-    'user-agent': PROXY_UA,
+    'user-agent': uaFor(target),
     accept: ranged ? '*/*' : 'image/*,*/*;q=0.8',
     // Identity encoding so the byte cap counts the bytes we actually stream and
     // content-length means what it says. Media is already compressed anyway.

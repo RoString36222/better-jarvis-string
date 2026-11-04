@@ -35,6 +35,22 @@ export const PROXY_UA =
   ' (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
 
 /**
+ * Wikimedia is the exception: it rate-limits anonymous browser-looking clients
+ * hard (429 after a handful of images) and asks tools to say who they are.
+ * Identified, ZEN gets ordinary limits — and its pictures load.
+ */
+const WIKIMEDIA_UA = 'ZEN-assistant/1.0 (personal voice assistant; https://github.com/RoString36222/better-jarvis-string)'
+export function uaFor(url) {
+  try {
+    const host = new URL(String(url)).hostname
+    if (/(^|\.)(wikimedia|wikipedia|wikidata|wiktionary)\.org$/.test(host)) return WIKIMEDIA_UA
+  } catch {
+    /* not a URL: the ordinary browser string */
+  }
+  return PROXY_UA
+}
+
+/**
  * Hostnames refused before a packet moves.
  *
  * `.local` is mDNS — every printer, NAS and Home Assistant box on the network
@@ -250,7 +266,7 @@ export async function fetchText(url, { maxBytes, timeoutMs, accept }) {
   const { res, url: finalUrl } = await openRemote(
     target,
     {
-      'user-agent': PROXY_UA,
+      'user-agent': uaFor(target),
       accept: accept ?? 'text/html,application/xhtml+xml,*/*;q=0.8',
       'accept-language': 'en-GB,en;q=0.9',
       'accept-encoding': 'identity',
@@ -309,7 +325,7 @@ export async function peek(url, { timeoutMs }) {
   const target = vetTarget(url)
   const { res, url: finalUrl } = await openRemote(
     target,
-    { 'user-agent': PROXY_UA, accept: '*/*', 'accept-encoding': 'identity' },
+    { 'user-agent': uaFor(target), accept: '*/*', 'accept-encoding': 'identity' },
     timeoutMs,
   )
   const out = {
