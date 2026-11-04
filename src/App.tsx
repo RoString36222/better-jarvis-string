@@ -51,6 +51,8 @@ import { env } from './config'
 /** How long to wait for someone to start speaking after he wakes. Generous:
  *  people say his name and *then* think about what they wanted. */
 const AWAIT_SPEECH_MS = 14000
+/** Push-to-talk: how long one Space press waits for you to start speaking. */
+const PTT_AWAIT_MS = 8000
 
 /** After an answer, how long the mic stays open for a follow-up before he
  *  drops back to standby. Long enough that you don't have to say the name
@@ -158,6 +160,17 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
+  /**
+   * After an answer: keep listening for a follow-up — unless push-to-talk is
+   * on, where the mic only ever opens on Space. Otherwise the follow-up window
+   * reopened it after every answer and the room got in again.
+   */
+  const followUp = () => {
+    const st = currentSettings()
+    if (!st.wakeWord || st.followUpSec <= 0) goDormant()
+    else listen(st.followUpSec * 1000)
+  }
+
   const respond = async (said: string): Promise<void> => {
     const mine = ++turn.current
     const stale = () => mine !== turn.current
@@ -190,7 +203,7 @@ export default function App() {
           speaker.current = null
           sfx.duck(false)
           music.duck(false)
-          listen(currentSettings().followUpSec * 1000)
+          followUp()
         }
       }
       return
@@ -266,7 +279,7 @@ export default function App() {
         music.working(false)
         // Stay open. Having to say his name again to add one more sentence is
         // the difference between a conversation and a vending machine.
-        listen(currentSettings().followUpSec * 1000)
+        followUp()
       }
     }
   }
@@ -864,6 +877,9 @@ export default function App() {
         listen(AWAIT_SPEECH_MS)
       } else {
         onWake('')
+        // Push-to-talk: a shorter wait for the first word, so a press with
+        // nothing said does not leave the mic open to the room for long.
+        if (!currentSettings().wakeWord) listen(PTT_AWAIT_MS)
       }
     }
     window.addEventListener('keydown', onKey)
