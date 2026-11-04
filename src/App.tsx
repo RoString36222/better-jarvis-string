@@ -384,10 +384,19 @@ export default function App() {
       speaker.current?.cancel()
       if (phase !== 'offline' && phase !== 'boot') goDormant()
     }
+    // Esc: stop him if he is doing anything; if he is already at rest, put
+    // ZEN away (the desktop app hides its window on this console line).
+    // Never while typing — the terminal's own programs need Esc.
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const st = store.getState()
+      if (st.approval) return
+      if (st.phase === 'dormant' || st.phase === 'offline') {
+        console.info('[zen:hide]')
+        return
+      }
       onStop()
     }
     window.addEventListener('string:stop', onStop)

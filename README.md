@@ -128,8 +128,13 @@ npm --prefix desktop install
 
 This puts **ZEN.app** in Applications. Open it from Launchpad or Spotlight;
 it starts ZEN if it isn't running, and **⌥Space** shows or hides it from
-anywhere (⌘H hides it too). The red ✕ quits. The first time, allow the
+anywhere. **Esc** hides it when ZEN is idle (when it is listening or talking, Esc
+stops it first). ✕ hides too; **⌘Q** quits. The first time, allow the
 microphone.
+
+**Launch with ⌥Space after a restart:** ⌥Space works while ZEN.app is
+running, so add it to your login items once — **System Settings → General →
+Login Items → +** → choose **ZEN**.
 
 ---
 
@@ -242,8 +247,8 @@ deleting, and password fields. ZEN tells you those are your step.
 | "Remember I live in Bengaluru" · "What do you remember?" · "Forget that" | Long-term memory |
 | "Stop" · "Wait" · "Zen, …" while it talks | Interrupts it |
 
-Keyboard: **Space** to talk without the wake word · **Esc** to stop ·
-**⌥Space** to summon the desktop app.
+Keyboard: **Space** to talk without the wake word · **Esc** to stop, then
+to hide · **⌥Space** to show or hide the desktop app.
 
 ---
 
