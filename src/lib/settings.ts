@@ -60,7 +60,8 @@ export const DEFAULTS: Settings = {
   theme: { preset: 'sapphire', ...PRESETS.sapphire },
   voice: 'chatterbox',
   followUpSec: 7,
-  wakeWord: true,
+  // Push-to-talk by default: a room's TV and voices kept waking it.
+  wakeWord: false,
   noiseFilter: 'strong',
   reactorScale: 1,
   show: { systems: true, transcript: true, suggestions: true, brand: true, toolBadge: true, picks: true },

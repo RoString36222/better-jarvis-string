@@ -766,10 +766,15 @@ export default function App() {
       const st = store.getState()
       // While speaking, follow JARVIS's own output rather than the mic, so the
       // orb lip-syncs instead of reacting to room noise.
+      // Push-to-talk at rest: the mic means nothing until Space, so the orb
+      // and meter stay still instead of looking like they are listening.
+      const atRest = st.phase === 'dormant' && !currentSettings().wakeWord
       const lvl =
         st.phase === 'speaking' && speaker.current
           ? speaker.current.level()
-          : micLevel()
+          : atRest
+            ? 0
+            : micLevel()
       st.setLevel(lvl)
       raf = requestAnimationFrame(pump)
     }
