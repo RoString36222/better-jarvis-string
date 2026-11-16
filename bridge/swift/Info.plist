@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>app.zen.calendar</string>
+  <key>CFBundleName</key><string>zen-cal</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>ZEN reads your calendar to tell you about your day and prepare you for meetings.</string>
+  <key>NSCalendarsUsageDescription</key><string>ZEN reads your calendar to tell you about your day and prepare you for meetings.</string>
+</dict>
+</plist>

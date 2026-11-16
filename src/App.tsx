@@ -6,6 +6,7 @@ import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { instantAnswer } from './lib/instant'
+import { askFast, recordExchange, forAgent, type Heard } from './lib/fastlane'
 import { currentSettings } from './lib/settings'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
 import * as sfx from './lib/sfx'
@@ -60,8 +61,9 @@ const PTT_AWAIT_MS = 8000
 
 /** What the BRIEF button and the morning briefing ask. */
 const BRIEFING_PROMPT =
-  'Give me my briefing: today\'s weather, anything you remember I have on today, ' +
-  'and, if you have monitoring tools, whether anything is firing. Three short sentences at most.'
+  'Give me my briefing: use `briefing` for my day (calendar, messages that need me, ' +
+  'who is waiting on me, promises and tasks due), plus today\'s weather and, if you have ' +
+  'monitoring tools, whether anything is firing. Four short sentences at most.'
 
 /** crypto.randomUUID needs a secure context, which a LAN address over plain
  *  http is not. Not worth failing a whole turn over an id. */
@@ -171,7 +173,22 @@ export default function App() {
     else listen(st.followUpSec * 1000)
   }
 
-  const respond = async (said: string): Promise<void> => {
+  /**
+   * Did the current conversation start from the room (wake word, always-on
+   * mic) rather than Space or the ask box? Set on every wake, so pressing
+   * Space clears it. Follow-ups in the same conversation are from the room
+   * too; the room context itself is used once, by the first request.
+   */
+  const roomTurn = useRef<Heard | null>(null)
+  /** This request's room marking: the context goes with the first request only. */
+  const takeRoom = (): Heard | null => {
+    const r = roomTurn.current
+    if (!r) return null
+    roomTurn.current = { fromRoom: true, context: [] }
+    return r
+  }
+
+  const respond = async (said: string, heard?: Heard | null): Promise<void> => {
     const mine = ++turn.current
     const stale = () => mine !== turn.current
 
@@ -189,13 +206,15 @@ export default function App() {
     sfx.duck(true)
     music.duck(true)
 
-    // Maths, the time, the date, unit conversions: answered here in a few
-    // milliseconds instead of a round trip to the model (see lib/instant.ts).
-    const quick = instantAnswer(said)
-    if (quick) {
+    /**
+     * Say an answer that needed no agent: the instant ones below and the fast
+     * lane's. Both arrive whole, so there is nothing to stream — one turn in
+     * the transcript, one line to the speaker, then the usual follow-up window.
+     */
+    const sayWhole = async (answer: string) => {
       s.setPhase('speaking')
-      s.pushTurn({ id: newId(), role: 'jarvis', text: quick })
-      spk.push(quick)
+      s.pushTurn({ id: newId(), role: 'jarvis', text: answer })
+      spk.push(answer)
       try {
         await spk.end()
       } finally {
@@ -206,16 +225,44 @@ export default function App() {
           followUp()
         }
       }
+    }
+
+    // Maths, the time, the date, unit conversions: answered here in a few
+    // milliseconds instead of a round trip to the model (see lib/instant.ts).
+    const quick = instantAnswer(said)
+    if (quick) {
+      // Remembered for the fast lane's follow-ups, but not passed on to the
+      // agent: it has no use for "it's ten past four".
+      recordExchange(said, quick, { agentSaw: true })
+      await sayWhole(quick)
       return
     }
 
     s.setPhase('thinking')
 
+    // The fast lane (bridge/fastlane.mjs): small talk, general knowledge and
+    // today's schedule or weather, in about a second instead of the agent's
+    // four or more. It answers or hands off; a handoff, an error or a slow
+    // bridge all simply fall through to the agent below, as before. Only with
+    // the bridge — the direct-to-API path has no /fast to ask.
+    if (usingBridge && currentSettings().fastLane) {
+      const fast = await askFast(said, heard?.context ?? [])
+      if (stale()) return
+      if (fast) {
+        recordExchange(said, fast, { agentSaw: false })
+        await sayWhole(fast)
+        return
+      }
+    }
+
     const turnId = newId()
     let started = false
 
     try {
-      const { text } = await ask(said, history.current, {
+      // To the agent with what it should know about the words: heard by the
+      // always-on mic (so maybe not him), the room just before, and any fast
+      // answers it missed. Shown in the transcript as he said it.
+      const { text } = await ask(usingBridge ? forAgent(said, heard) : said, history.current, {
         onText: (delta) => {
           if (stale()) return
           if (!started) {
@@ -249,6 +296,9 @@ export default function App() {
       })
 
       if (stale()) return
+
+      // What he heard, for the fast lane's next follow-up ("and tomorrow?").
+      if (text) recordExchange(said, text, { agentSaw: true })
 
       // The bridge keeps conversation state in its own session, so history is
       // only threaded through on the direct path.
@@ -302,17 +352,22 @@ export default function App() {
     }
   }
 
-  const onWake = (trailing: string) => {
+  const onWake = (trailing: string, heard?: Heard) => {
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot') return
+    roomTurn.current = heard ?? null
 
     store.getState().setError(null)
     sfx.play('wake')
+    // Woken by voice while the desktop window is hidden: ask desktop/main.cjs
+    // to bring it forward. The console is its only channel into the page (no
+    // preload), the same way Esc asks to hide; in a browser this is a no-op.
+    if (document.hidden) console.info('[zen:wake]')
 
     // "Jarvis, what's happening in AI this week" in one breath. Waiting for a
     // greeting he didn't need is the most common way an assistant wastes time.
     if (trailing) {
-      void respond(trailing)
+      void respond(trailing, takeRoom())
       return
     }
 
@@ -366,7 +421,7 @@ export default function App() {
       return
     }
 
-    void respond(said)
+    void respond(said, takeRoom())
   }
 
   /**
@@ -380,6 +435,8 @@ export default function App() {
       const phase = store.getState().phase
       if (!text || phase === 'offline' || phase === 'boot') return
       speaker.current?.cancel()
+      // Typed: certainly him, and no longer the room's conversation.
+      roomTurn.current = null
       void respond(text)
     }
     // STOP button and Esc: abandon the answer, silence him, back to rest.
@@ -508,6 +565,10 @@ export default function App() {
     // alert never talks over an answer. A missed one stays in the transcript.
     watchNotify((text) => {
       store.getState().pushTurn({ id: newId(), role: 'jarvis', text })
+      // The agent never saw this line, so a bare "yes" to "Shall I compare
+      // cabs?" would reach it with nothing to agree to. Passed on with the
+      // next request, like a fast-lane answer.
+      recordExchange('(nothing — ZEN spoke up on its own)', text, { agentSaw: false })
       // Hidden window: count it in the title, which the desktop app turns
       // into a Dock badge. Cleared when the window is looked at again.
       if (document.hidden) {

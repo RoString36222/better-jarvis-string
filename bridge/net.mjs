@@ -44,6 +44,9 @@ export function uaFor(url) {
   try {
     const host = new URL(String(url)).hostname
     if (/(^|\.)(wikimedia|wikipedia|wikidata|wiktionary)\.org$/.test(host)) return WIKIMEDIA_UA
+    // OpenStreetMap's Nominatim and the public OSRM router (bridge/travel.mjs)
+    // ask the same of tools: say who you are, or be blocked.
+    if (/(^|\.)(openstreetmap\.org|project-osrm\.org)$/.test(host)) return WIKIMEDIA_UA
   } catch {
     /* not a URL: the ordinary browser string */
   }

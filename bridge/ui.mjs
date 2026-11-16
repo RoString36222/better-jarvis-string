@@ -339,7 +339,7 @@ export function uiServer(emit) {
     name: 'jarvis_ui',
     version: '1.0.0',
     instructions:
-      'JARVIS\'s control of his own interface — colour, reactor, orbiting ' +
+      'ZEN\'s control of its own interface — colour, reactor, orbiting ' +
       'images, chrome, effects. Change it when the change carries meaning, ' +
       'and put it back afterwards with ui_reset.',
     // Same reasoning as the display server: behind tool search it would never

@@ -99,7 +99,7 @@ const WMO = {
   99: 'severe thunderstorm with hail',
 }
 
-async function weather(place, days) {
+export async function weather(place, days) {
   const asked = String(place ?? '').trim() || HOME_CITY
   const name = CITY_ALIASES[asked.toLowerCase()] ?? asked
   const geo = await get(

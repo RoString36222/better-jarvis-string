@@ -16,6 +16,12 @@ export type Settings = {
   followUpSec: number
   /** "Hey Zen" wakes it; off = push-to-talk, Space only, room ignored. */
   wakeWord: boolean
+  /**
+   * Small talk, general knowledge, today's schedule and weather answered by a
+   * small tool-less model in about a second (bridge/fastlane.mjs) before the
+   * full agent is asked. Anything it can't answer goes to the agent as usual.
+   */
+  fastLane: boolean
   /** How much it takes for sound to count as speech. */
   noiseFilter: 'normal' | 'strong' | 'max'
   /** Reactor size multiplier. */
@@ -62,6 +68,7 @@ export const DEFAULTS: Settings = {
   followUpSec: 7,
   // Push-to-talk by default: a room's TV and voices kept waking it.
   wakeWord: false,
+  fastLane: true,
   noiseFilter: 'strong',
   reactorScale: 1,
   show: { systems: true, transcript: true, suggestions: true, brand: true, toolBadge: true, picks: true },

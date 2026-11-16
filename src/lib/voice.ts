@@ -4,6 +4,7 @@ import { speakingNow, speakingSince } from './tts'
 import { currentSettings } from './settings'
 import { startVad, type Vad } from './vad'
 import { caps } from './capabilities'
+import { wakeCheck, type Heard } from './fastlane'
 
 /**
  * The voice loop.
@@ -40,8 +41,10 @@ export type VoiceHandlers = {
   mode: () => VoiceMode
   /** Fired on his name, from a partial — waiting for endpointing feels slow.
    *  `trailing` is whatever followed it, so "Jarvis, what's the weather" is
-   *  one breath rather than two turns. */
-  onWake: (trailing: string) => void
+   *  one breath rather than two turns. `heard` is set when the room woke it
+   *  (wake word on) rather than Space: the request came from the always-on
+   *  mic, with what the room said just before it. */
+  onWake: (trailing: string, heard?: Heard) => void
   /** The user has genuinely started talking. This is the barge-in trigger. */
   onSpeechStart: () => void
   /** Live transcript, for the caption under the reactor. */
@@ -64,6 +67,8 @@ export type Voice = {
 
 /** One utterance often produces several partials containing his name. */
 const WAKE_DEBOUNCE = 1500
+/** At rest, segments shorter than this (quiet tail included) are not sent to Whisper. */
+const WAKE_MIN_MS = 650
 
 /**
  * His name, and the only wake phrase.
@@ -89,6 +94,131 @@ function afterWake(text: string): string {
     .slice(m.index + m[0].length)
     .replace(/^[\s,.:;!?-]+/, '')
     .trim()
+}
+
+// ---------------------------------------------------------------------------
+// The room: what the always-on mic heard without his name
+// ---------------------------------------------------------------------------
+
+/**
+ * Why keep anything said without the name?
+ *
+ * Because people talk to an assistant in the middle of talking to each other.
+ * "…so Pluto got demoted in 2006 and nobody agreed. Zen, what do you think?"
+ * — the request is "what do you think", and without the sentences before it
+ * there is nothing to think about. The reference listener keeps a 30-second
+ * ring of room speech for exactly this, and so does ZEN now.
+ *
+ * The rules, because this is speech nobody addressed to ZEN:
+ *  - memory only, 30 s, at most ten lines; nothing here is written, logged,
+ *    shown (the diagnostics show "room speech", never the words) or sent on
+ *    its own;
+ *  - it leaves the page only attached to a request that does name ZEN — to
+ *    the wake check and to the question — clearly marked as maybe other
+ *    people or a video;
+ *  - it is cleared as soon as a request is handled, so one conversation's
+ *    room never colours the next;
+ *  - only with the wake word on. Push-to-talk never transcribes the room.
+ */
+const ROOM_MS = 30_000
+const ROOM_MAX = 10
+let room: { at: number; text: string }[] = []
+
+function rememberRoom(text: string) {
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (!t || !currentSettings().wakeWord) return
+  room.push({ at: Date.now(), text: t.slice(0, 300) })
+  room = room.filter((x) => Date.now() - x.at <= ROOM_MS).slice(-ROOM_MAX)
+}
+function roomContext(): string[] {
+  room = room.filter((x) => Date.now() - x.at <= ROOM_MS)
+  return room.map((x) => x.text)
+}
+/** Forget the room: a request was handled, or the wake word was turned off. */
+export function forgetRoom() {
+  room = []
+}
+
+/**
+ * The same request heard twice — two segments both carrying the sentence, a
+ * partial and its final, a video replaying a line — is answered once. Eight
+ * seconds, as in the reference: long enough to cover a re-transcribed
+ * segment, short enough that asking again on purpose works.
+ */
+const DEDUPE_MS = 8000
+let lastAsk = { norm: '', at: 0 }
+const askNorm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+function repeated(request: string): boolean {
+  const n = askNorm(request)
+  if (!n) return false
+  const same = Date.now() - lastAsk.at < DEDUPE_MS && (n === lastAsk.norm || (n.length >= 8 && lastAsk.norm.includes(n)))
+  if (!same) lastAsk = { norm: n, at: Date.now() }
+  return same
+}
+
+/**
+ * A request that stops on "and", "the", "to", or a comma is not over, however
+ * long the pause: he is drawing breath ("Zen, what's the weather in —" …
+ * "London"). Same word list as the assembler below, minus its short-sentence
+ * rule ("Zen, play jazz" is complete).
+ */
+function unfinished(text: string): boolean {
+  const t = text.trim()
+  if (TRAILS.test(t)) return true
+  const last = t.split(/\s+/).pop() ?? ''
+  return CONTINUES.test(last.replace(/[^\p{L}']/gu, ''))
+}
+
+/**
+ * The name heard in the room: was it said TO ZEN, and what does he want?
+ *
+ * The bridge's wake check (bridge/wake.mjs) decides. Its rules answer the
+ * obvious in a millisecond — "Zen, …", "…, Zen?", a bare "Zen?" — and a model
+ * looks at the rest: the name mid-sentence ("I was telling Zen yesterday…"),
+ * or a statement about it ("Zen is slow today", "zen garden"). It is given
+ * the room's last 30 s, so "what do you think?" can be understood, and it
+ * trims a video's line that ran on after his request. It fails open: no
+ * bridge or no answer in 2.5 s means it was for ZEN, because a missed request
+ * costs him a repeat. Only reached with the wake word on.
+ *
+ * Returns null when it was not for ZEN (the sentence then stays in the room
+ * memory like any other speech), else the request ('' = just called) and
+ * where it came from.
+ */
+async function decideWake(text: string): Promise<{ request: string; heard: Heard } | null> {
+  const context = roomContext()
+  const v = await wakeCheck(text, context)
+  if (!v.addressed) {
+    rememberRoom(text)
+    return null
+  }
+  // The rules and the model leave the name out already; a fail-open answer
+  // is his whole sentence, so take it out here.
+  const request =
+    v.kind === 'call'
+      ? ''
+      : v.request
+          .replace(new RegExp(WAKE.source, 'gi'), ' ')
+          .replace(/\s+([,.!?])/g, '$1')
+          .replace(/^[\s,.:;!?-]+/, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+  forgetRoom()
+  return { request, heard: { fromRoom: true, context } }
+}
+
+/**
+ * Hand a decided wake to the app. An unfinished request wakes it with
+ * nothing and goes into the assembler instead, which waits for the rest of
+ * the sentence (CONTINUE_MS, capped at MAX_HOLD_MS) before it becomes a turn.
+ */
+function deliverWake(h: VoiceHandlers, assemble: Assembler, w: { request: string; heard: Heard }) {
+  if (w.request && unfinished(w.request)) {
+    h.onWake('', w.heard)
+    assemble.feed(w.request, false)
+    return
+  }
+  h.onWake(w.request, w.heard)
 }
 
 // ---------------------------------------------------------------------------
@@ -492,18 +622,40 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         h.onSpeechStart()
       }
 
-      diag.heard = said
-      diag.heardAt = Date.now()
+      // Room speech never reaches the diagnostics; a wake records it below.
+      if (mode !== 'wake') {
+        diag.heard = said
+        diag.heardAt = Date.now()
+      }
 
       if (mode === 'wake') {
         if (WAKE.test(said) && Date.now() - lastWake > WAKE_DEBOUNCE) {
+          // Claimed before the check, so the next segment of the same
+          // sentence cannot start a second wake while this one is decided.
           lastWake = Date.now()
+          const w = await decideWake(said)
+          if (!w) {
+            lastWake = 0
+            drop('his name, but not said to him (kept 30s as room context)')
+            return
+          }
+          // He pressed Space, or something else woke it, during the check.
+          if (h.mode() !== 'wake') return
+          if (w.request && repeated(w.request)) {
+            drop('the same request again within 8s')
+            return
+          }
+          diag.heard = said
+          diag.heardAt = Date.now()
           diag.wakes++
           diag.dropped = ''
           diag.accepted++
-          h.onWake(afterWake(said))
+          deliverWake(h, assemble, w)
         } else {
-          drop(`heard "${said.slice(-40)}" — not his name`)
+          // Room speech: into the 30 s memory, and nowhere else — not even
+          // the diagnostics, which only say that something was heard.
+          rememberRoom(said)
+          drop('room speech without his name (kept 30s in memory)')
         }
         return
       }
@@ -559,12 +711,20 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         if (since && Date.now() - since < SELF_GUARD_MS) diag.selfGuarded++
       }
     },
-    onEnd: (blob) => {
+    onEnd: (blob, ms) => {
       live = ''
       liveSeq++
       // Push-to-talk: at rest nothing is transcribed at all — the room's
       // voices never reach Whisper, so they can never wake ZEN.
       if (h.mode() === 'wake' && !currentSettings().wakeWord) return
+      // At rest, a segment this short is a click, a cough or a door, not a
+      // sentence: `ms` includes the detector's 450 ms quiet tail, so this is
+      // about 200 ms of sound — less than even a bare "Zen?". Not applied
+      // while he is talking to ZEN, where "no" and "yes" are short and real.
+      if (h.mode() === 'wake' && ms < WAKE_MIN_MS) {
+        drop('too short to be speech')
+        return
+      }
       pendingAudio.push(blob)
       void drain()
     },
@@ -748,18 +908,34 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
       drop('echo of his own voice')
       return
     }
-    diag.heard = text
-    diag.heardAt = Date.now()
+    if (mode !== 'wake') {
+      diag.heard = text
+      diag.heardAt = Date.now()
+    }
     if (mode === 'wake') {
       assemble.cancel()
       if (WAKE.test(text) && Date.now() - lastWake > WAKE_DEBOUNCE) {
         lastWake = Date.now()
-        diag.wakes++
-        diag.dropped = ''
-        diag.accepted++
-        h.onWake(afterWake(text))
+        // Same check as the Whisper path; emit itself stays synchronous.
+        void decideWake(text).then((w) => {
+          if (!w) {
+            lastWake = 0
+            drop('his name, but not said to him (kept 30s as room context)')
+            return
+          }
+          if (h.mode() !== 'wake') return
+          if (w.request && repeated(w.request)) {
+            drop('the same request again within 8s')
+            return
+          }
+          diag.wakes++
+          diag.dropped = ''
+          diag.accepted++
+          deliverWake(h, assemble, w)
+        })
       } else {
-        drop(`heard "${text.slice(-40)}" — not his name`)
+        rememberRoom(text)
+        drop('room speech without his name (kept 30s in memory)')
       }
       return
     }

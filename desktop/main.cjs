@@ -65,6 +65,9 @@ function openWindow() {
       titleBarStyle: 'hiddenInset',
       show: false,
       // A desktop app has no reason to wait for a click before it can speak.
+      // backgroundThrottling off: hidden, Chromium would slow its timers and
+      // audio callbacks, and the wake word would stop being heard while ZEN
+      // sits in the background — exactly when it is meant to be listening.
       webPreferences: { backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     })
     // The page counts alerts that arrived while hidden in its title, "(2) Z.E.N.";
@@ -92,6 +95,14 @@ function openWindow() {
     win.webContents.on('console-message', (e, level, message) => {
       const text = typeof e?.message === 'string' ? e.message : message
       if (text === '[zen:hide]') hideWin()
+      // Woken by voice while hidden ("Hey Zen" from across the room): come
+      // forward so the answer and its panels are on screen. Listening itself
+      // kept working while hidden because backgroundThrottling is off above.
+      // No Space keypress here, unlike summon(): the page is already listening.
+      if (text === '[zen:wake]' && win && !win.isVisible()) {
+        win.show()
+        win.focus()
+      }
     })
     await win.loadURL(URL)
     // Asked after the window is up: the macOS prompt waits for the user.

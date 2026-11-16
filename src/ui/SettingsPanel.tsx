@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useSettings, PRESETS, VOICES, DEFAULTS, type Settings } from '../lib/settings'
 import { createSpeaker } from '../lib/tts'
+import { forgetRoom } from '../lib/voice'
 
 /**
  * Settings: everything a user might want to change, applied the moment it
@@ -171,8 +172,23 @@ export function SettingsPanel() {
                   <Toggle
                     label="“Hey Zen” wake word"
                     on={settings.wakeWord}
-                    set={(v) => set((s) => ({ ...s, wakeWord: v }))}
+                    set={(v) => {
+                      // Off means the room is ignored — including what it already said.
+                      if (!v) forgetRoom()
+                      set((s) => ({ ...s, wakeWord: v }))
+                    }}
                     hint={settings.wakeWord ? 'say “Hey Zen”, or press Space' : 'push-to-talk: only Space — the room is ignored'}
+                  />
+                  <div className="st-section">Answering</div>
+                  <Toggle
+                    label="Fast lane"
+                    on={settings.fastLane}
+                    set={(v) => set((s) => ({ ...s, fastLane: v }))}
+                    hint={
+                      settings.fastLane
+                        ? 'small talk, facts, schedule & weather in ~1s — the rest goes to the full ZEN'
+                        : 'every question goes to the full ZEN (slower, ~4s)'
+                    }
                   />
                   <div className="st-section">Noise filter</div>
                   <div className="st-seg">

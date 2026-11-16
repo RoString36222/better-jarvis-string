@@ -196,6 +196,19 @@ function saveReminders(items) {
   renameSync(`${FILE}.tmp`, FILE)
 }
 
+/**
+ * Adds one reminder to the same list set_reminder uses, so reminders made
+ * elsewhere (promises spotted by bridge/chief.mjs) fire the same way.
+ * @returns {string} its id
+ */
+export function addReminder(text, due) {
+  const items = loadReminders()
+  const id = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
+  items.push({ id, text: String(text).trim() || 'Reminder', due: Number(due) })
+  saveReminders(items)
+  return id
+}
+
 /** "16:00", "4pm", "4:30 pm" -> the next such time today or tomorrow. */
 function parseClock(at, now = new Date()) {
   const m = String(at).trim().toLowerCase().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/)
