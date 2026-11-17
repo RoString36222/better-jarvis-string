@@ -544,12 +544,13 @@ export default function App() {
     watchBlades((blade) => store.getState().pushBlade(blade))
     // Before ZEN types or clicks anywhere: one card, Allow or Deny. A
     // previous answer never carries over to a new action, except inside an
-    // explicit "Allow next 2 min" window.
+    // explicit "Allow next 2 min" window — and never for a `fresh` card
+    // (messages leaving the Mac), which is always shown and always asked.
     watchApprove(
-      (text) =>
+      (text, fresh) =>
         new Promise<boolean>((resolve) => {
           const st = store.getState()
-          if (Date.now() < st.allowUntil) return resolve(true)
+          if (!fresh && Date.now() < st.allowUntil) return resolve(true)
           st.approval?.resolve(false)
           sfx.play('tool')
           st.setApproval({

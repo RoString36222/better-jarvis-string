@@ -376,9 +376,10 @@ function catastrophicTarget(t) {
 /**
  * Credentials, by path. Used on Bash text and on file tools (Read/Grep
  * included — reading a key is how it leaks). `.env.example` style files carry
- * no secrets and stay readable.
+ * no secrets and stay readable. Exported because chief.mjs refuses to attach
+ * the same files to an email: what ZEN may not read, it may not send either.
  */
-const CRED_PATH = new RegExp(
+export const CRED_PATH = new RegExp(
   [
     String.raw`(^|[\s'"=:/~(])\.(ssh|aws|gnupg|kube|docker|netrc|npmrc|pypirc|git-credentials|kimi\.env)(\/|\b|$)`,
     String.raw`(^|[\s'"=:/(])\.env(\.(?!example\b|sample\b|template\b|dist\b)[\w.-]+)?(?=$|[\s'"/;|&)])`,

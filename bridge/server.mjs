@@ -283,7 +283,12 @@ function describeTool(name, input = {}) {
   if (tool === 'task_list') return 'Checking your list…'
   if (tool === 'task_done') return 'Ticking that off…'
   if (tool === 'contact_lookup') return `Looking up ${cut(input.query ?? input.name ?? 'the contact', 30)}…`
-  if (tool === 'draft_message') return 'Drafting the message (waiting for your OK)…'
+  if (tool === 'draft_message')
+    return input.channel === 'email' && input.save_as_draft === true
+      ? 'Drafting the email for Mail Drafts (waiting for your OK)…'
+      : `Drafting the ${input.channel === 'email' ? 'email' : 'message'} (waiting for your OK)…`
+  if (tool === 'find_file') return `Looking for “${cut(input.name ?? 'the file', 30)}”…`
+  if (tool === 'mail_accounts') return 'Checking your Mail accounts…'
   if (tool === 'suggest_replies') return 'Drafting replies in your style…'
   if (tool === 'life_access') return 'Checking what I can read…'
   if (tool === 'trips') return 'Checking your trips…'
@@ -494,6 +499,19 @@ Chief of staff — your life tools:
 - \`draft_message\` and \`suggest_replies\` write in their voice; nothing leaves
   until they tap Allow on the card. Say who it is to in one sentence, then
   stop — the card does the asking.
+- Email can go to several people with cc and bcc, carry files, answer a mail
+  in its own thread, go from a chosen account, or wait in Mail Drafts:
+  - Attach only files the user named. For "the latest X in Downloads", call
+    \`find_file\`, pick the newest match and say its name. Never attach
+    something they did not ask for; keys and passwords are always refused.
+  - "Reply to Rahul's mail about the invoice": \`reply_to\` with an id from
+    \`inbox\` ("mail 12345") or the sender and subject words; \`reply_all\`
+    only when they say all or everyone.
+  - "From my work address": \`from\` with the word they used;
+    \`mail_accounts\` lists the choices. Otherwise leave it out.
+  - "Draft it" or "don't send yet" means \`save_as_draft\`.
+  - If ZEN asks which person, mail or account, ask the user that question
+    plainly and wait.
 - If a source needs permission, say once which one (\`life_access\` knows) and
   carry on with what you have.
 - Flights: ZEN finds them itself in mail, airline texts and the calendar and

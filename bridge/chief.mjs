@@ -1,12 +1,13 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { execFile } from 'node:child_process'
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { completeJson } from './llm.mjs'
 import { addReminder } from './mac.mjs'
-import { NeedsAccess, access, calendar, contactName, findContact, mail, messages, missedCalls, phoneKey, sentTo } from './life.mjs'
+import { NeedsAccess, access, calendar, contactName, findContact, mail, mailAccounts, mailHeaders, mailMessage, messages, missedCalls, phoneKey, sentTo } from './life.mjs'
+import { CRED_PATH, redact } from './gate.mjs'
 import { clean, fence, injectionSigns, safeSummary } from './sanitize.mjs'
 import { checkIn, checkInContinue } from './checkin.mjs'
 import { compareCabs, forgetTrip, openCab, scanTrips, travelTick, tripText, tripsList } from './travel.mjs'
@@ -34,8 +35,9 @@ import { compareCabs, forgetTrip, openCab, scanTrips, travelTick, tripText, trip
  *
  * Env: STRING_CHIEF_MINUTES (loop period, default 5, 0 = off),
  * ZEN_STATE_DIR (where the files live), ZEN_APPLE_REMINDERS=1 (also copy
- * promises into Apple Reminders), ZEN_DRY_SEND=1 (approve but do not send;
- * for testing), ZEN_CLASH_AT (default "21:00").
+ * promises into Apple Reminders), ZEN_DRY_SEND=1 (approve but do not send:
+ * the exact AppleScript and arguments are printed instead; for testing),
+ * ZEN_CLASH_AT (default "21:00").
  */
 
 const DIR = process.env.ZEN_STATE_DIR || join(homedir(), '.string')
@@ -93,7 +95,9 @@ const saveTasks = (t) => writeJson(FILES.tasks, t.slice(-300))
 
 function logAction(tool, summary, decision) {
   mkdirSync(DIR, { recursive: true })
-  appendFileSync(FILES.actions, JSON.stringify({ ts: new Date().toISOString(), tool, summary, decision }) + '\n')
+  // Redacted like the gate's own log: an email body can carry a pasted
+  // password or token, and this file is read back aloud and shown on screen.
+  appendFileSync(FILES.actions, JSON.stringify({ ts: new Date().toISOString(), tool, summary: redact(summary), decision: redact(decision) }) + '\n')
 }
 
 /** A missing permission is said once per run, not every five minutes. */
@@ -1023,23 +1027,383 @@ end run`,
     send (item 2 of argv) to participant (item 1 of argv) of smsAccount
   end tell
 end run`,
+  // One script for every email. Fixed items first, then a tagged list
+  // ("to:", "cc:", "bcc:", "file:") so any number of recipients and files fit
+  // without the script ever being built from the user's words.
+  //   1 "send" or "draft"   2 subject (ignored on a reply: Mail writes "Re:")
+  //   3 body                4 from address ("" = Mail's default account)
+  //   5 inbox id being replied to ("" = a new message)   6 "all" = reply all
+  //   7 the quoted history, used only if Mail leaves the reply empty
+  //     (with no window open, some macOS versions hand back a blank reply)
   email: `on run argv
+  set theMode to item 1 of argv
+  set theBody to item 3 of argv
+  set fromAddr to item 4 of argv
+  set replyId to item 5 of argv
+  set toAll to (item 6 of argv) is "all"
+  set hasFiles to false
   tell application "Mail"
-    set m to make new outgoing message with properties {subject:(item 2 of argv), content:(item 3 of argv), visible:false}
-    tell m to make new to recipient at end of to recipients with properties {address:(item 1 of argv)}
-    send m
+    if replyId is "" then
+      set m to make new outgoing message with properties {subject:(item 2 of argv), content:theBody, visible:false}
+    else
+      set orig to first message of inbox whose id is (replyId as integer)
+      set m to reply orig opening window false reply to all toAll
+      set history to ""
+      try
+        set history to content of m
+      end try
+      if history is missing value or history is "" then set history to item 7 of argv
+      set content of m to theBody & return & return & history
+    end if
+    if fromAddr is not "" then set sender of m to fromAddr
+    repeat with i from 8 to count of argv
+      set a to item i of argv
+      if a starts with "to:" then
+        tell m to make new to recipient at end of to recipients with properties {address:(text 4 thru -1 of a)}
+      else if a starts with "cc:" then
+        tell m to make new cc recipient at end of cc recipients with properties {address:(text 4 thru -1 of a)}
+      else if a starts with "bcc:" then
+        tell m to make new bcc recipient at end of bcc recipients with properties {address:(text 5 thru -1 of a)}
+      else if a starts with "file:" then
+        set hasFiles to true
+        tell content of m to make new attachment with properties {file name:(POSIX file (text 6 thru -1 of a))} at after last paragraph
+      end if
+    end repeat
+    -- Mail loads attachments in the background; sending at once can drop them.
+    if hasFiles then delay 2
+    if theMode is "draft" then
+      save m
+    else
+      send m
+    end if
   end tell
 end run`,
 }
 
-function send(channel, address, text, subject, attachment) {
-  if (process.env.ZEN_DRY_SEND === '1') return Promise.resolve()
-  const args = channel === 'email' ? [address, subject || '', text] : [address, text, ...(attachment ? [attachment] : [])]
+/**
+ * Runs one of the SEND scripts. `args` are its argv, in order. With
+ * ZEN_DRY_SEND=1 nothing runs: the exact script and arguments are printed
+ * instead, so a send can be checked end to end without anyone receiving it.
+ */
+function runSend(channel, args, timeout = 30_000) {
+  if (process.env.ZEN_DRY_SEND === '1') {
+    console.log(`[chief] ZEN_DRY_SEND: would run osascript -e <script below> with ${args.length} args\n${SEND[channel]}\nargs: ${JSON.stringify(args, null, 1)}`)
+    return Promise.resolve()
+  }
   return new Promise((resolve, reject) =>
-    execFile('osascript', ['-e', SEND[channel], ...args], { timeout: 30_000 }, (err, _o, stderr) =>
+    execFile('osascript', ['-e', SEND[channel], ...args], { timeout }, (err, _o, stderr) =>
       err ? reject(new Error(String(stderr || err.message).trim())) : resolve(),
     ),
   )
+}
+
+/** iMessage and SMS: one recipient, the words, and (iMessage only) a boarding pass. */
+const send = (channel, address, text, attachment) => runSend(channel, [address, text, ...(attachment ? [attachment] : [])])
+
+/** The argv for SEND.email, from a plan buildEmail made. */
+const emailArgs = (e) => [
+  e.draft ? 'draft' : 'send',
+  e.reply ? '' : e.subject,
+  e.body,
+  e.from?.address ?? '',
+  e.reply?.id ?? '',
+  e.reply?.all ? 'all' : '',
+  e.reply?.history ?? '',
+  ...e.to.map((r) => `to:${r.address}`),
+  ...e.cc.map((r) => `cc:${r.address}`),
+  ...e.bcc.map((r) => `bcc:${r.address}`),
+  ...e.files.map((f) => `file:${f.path}`),
+]
+
+// ------------------------------------------------------------------- email
+
+const MB = 1024 * 1024
+const ATTACH_EACH = 20 * MB
+const ATTACH_TOTAL = 25 * MB
+const HOME = homedir()
+
+const expandHome = (p) => (p === '~' ? HOME : p.startsWith('~/') ? join(HOME, p.slice(2)) : p)
+const sizeText = (n) => (n >= MB ? `${(n / MB).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`)
+
+/** Folders whose files never leave the Mac by email, whatever they are called. */
+const SECRET_DIRS = ['.ssh', '.aws', '.gnupg'].map((d) => join(HOME, d))
+/** Names that look like keys or passwords even outside those folders. */
+const SECRET_NAME = /^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$|\.(pem|p12|pfx|key|kdbx|keychain(-db)?)$|(^|[^a-z])(secrets?|passwords?|passwd)([^a-z]|$)/i
+
+const inside = (p, dir) => p === dir || p.startsWith(`${dir}/`)
+
+/**
+ * Why a file may not be attached, or null when it may. Checked on the path
+ * as named AND on where it really points, so a link called "notes.txt" in
+ * Downloads cannot carry ~/.ssh/id_rsa out. The rules are the gate's own
+ * (CRED_PATH): what ZEN may not read, it may not send. ZEN's own folder is
+ * off limits too (memory, logs, tokens), except the boarding passes it saved.
+ */
+function attachRefusal(...paths) {
+  const stateDirs = [...new Set([join(HOME, '.string'), DIR])]
+  for (const p of paths) {
+    if (SECRET_DIRS.some((d) => inside(p, d))) return 'it is in a folder of keys and credentials'
+    if (stateDirs.some((d) => inside(p, d)) && !inside(p, join(DIR, 'boarding')) && !inside(p, join(HOME, '.string', 'boarding')))
+      return "it is one of ZEN's own private files"
+    if (CRED_PATH.test(p) || SECRET_NAME.test(basename(p))) return 'it looks like a password, key or credentials file'
+  }
+  return null
+}
+
+/**
+ * The files the user named, checked: [{ path, name, size }] or an error
+ * that lists every problem at once (so one answer fixes them all). Relative
+ * paths are taken from the home folder, which is where people think from.
+ */
+function emailAttachments(paths) {
+  const files = []
+  const problems = []
+  for (const raw of paths) {
+    const named = String(raw ?? '').trim()
+    if (!named) continue
+    const given = resolvePath(HOME, expandHome(named))
+    const name = basename(given)
+    // The name is judged before the disk is asked, so a key is refused as a
+    // key whether or not it exists (and the answer leaks nothing about which).
+    let why = attachRefusal(given)
+    let real
+    if (!why) {
+      try {
+        real = realpathSync(given)
+      } catch {
+        problems.push(`${name}: there is no such file`)
+        continue
+      }
+      why = attachRefusal(real)
+    }
+    if (why) {
+      problems.push(`${name}: I won't attach it, ${why}`)
+      continue
+    }
+    const st = statSync(real)
+    if (!st.isFile()) problems.push(`${name}: that is not a file`)
+    else if (st.size > ATTACH_EACH) problems.push(`${name}: it is ${sizeText(st.size)}, over the ${sizeText(ATTACH_EACH)} limit for one attachment`)
+    else if (!files.some((f) => f.path === real)) files.push({ path: real, name: basename(real), size: st.size })
+  }
+  const total = files.reduce((n, f) => n + f.size, 0)
+  if (!problems.length && total > ATTACH_TOTAL) problems.push(`together they are ${sizeText(total)}, over the ${sizeText(ATTACH_TOTAL)} limit for one email`)
+  return problems.length ? { error: `Can't attach: ${problems.join('; ')}.` } : { files }
+}
+
+/** "Rahul, priya@x.com" or ["Rahul", "Priya"] -> one list of names and addresses to resolve. */
+const splitPeople = (v) =>
+  (Array.isArray(v) ? v : [v])
+    .flatMap((x) => String(x ?? '').split(/[,;]/))
+    .map((x) => x.trim())
+    .filter(Boolean)
+
+/** Every name resolved like `to` always was; any that cannot be are all reported together. */
+function emailRecipients(v) {
+  const list = []
+  const problems = []
+  for (const who of splitPeople(v)) {
+    const r = recipient(who, 'email')
+    if (r.error) problems.push(r.error)
+    else if (!list.some((x) => x.address.toLowerCase() === r.address.toLowerCase())) list.push(r)
+  }
+  return problems.length ? { error: problems.join(' ') } : { list }
+}
+
+/**
+ * Which of the user's Mail addresses to send from. `from` is an address, an
+ * account name ("work", "iCloud") or a domain word ("juspay"). Null means
+ * Mail's default account.
+ */
+async function emailSender(from) {
+  const want = String(from ?? '').trim()
+  if (!want) return { from: null }
+  let accounts
+  try {
+    accounts = await mailAccounts()
+  } catch (err) {
+    return { error: `I couldn't ask Mail for your accounts: ${err.message}` }
+  }
+  const all = accounts.flatMap((a) => a.addresses.map((address) => ({ account: a.name, address })))
+  const exact = all.filter((x) => x.address.toLowerCase() === want.toLowerCase())
+  if (exact.length) return { from: exact[0] }
+  const word = norm(want).replace(/\b(my|the|account|address|email|mail|id)\b/g, ' ').trim()
+  if (!word) return { from: null }
+  const hits = all.filter(
+    (x) => norm(x.account).includes(word) || norm(x.address.split('@')[1] ?? '').split(' ').includes(word) || norm(x.address).includes(word),
+  )
+  const byAccount = [...new Set(hits.map((x) => x.account))]
+  if (byAccount.length === 1) return { from: hits[0] }
+  const choices = (byAccount.length ? hits : all).map((x) => `${x.address} (${x.account})`).join(', ')
+  return { error: byAccount.length ? `Which address: ${choices}?` : `None of your Mail accounts matches "${want}". You have: ${choices || 'no accounts in Mail'}.` }
+}
+
+/** Words that say what kind of thing the user means, not which one. */
+const REPLY_FILLER = new Set(['the', 'a', 'an', 'mail', 'email', 'message', 'from', 'about', 'to', 're', 'reply', 'last', 'latest', 'his', 'her', 'their', 'on', 'of', 'that'])
+
+/**
+ * The inbox message to reply to: an id from the `inbox` tool ("12345" or
+ * "mail 12345"), or words from its sender and subject ("Rahul invoice").
+ * Several hits from one thread mean the newest; hits from different threads
+ * are a question back to the user, with ids so the answer can be exact.
+ */
+async function emailReplyTarget(ref) {
+  const raw = String(ref ?? '').trim()
+  const idm = /^(?:mail[:\s#]*)?(\d+)$/i.exec(raw)
+  let id = idm?.[1]
+  if (!id) {
+    const words = norm(raw).split(' ').filter((w) => w && !REPLY_FILLER.has(w))
+    if (!words.length) return { error: 'Which mail should I reply to? Give me the sender or a few words of the subject.' }
+    let heads
+    try {
+      heads = await mailHeaders(30)
+    } catch (err) {
+      return { error: err.message }
+    }
+    const hits = heads.filter((h) => {
+      const hay = ` ${norm(`${h.fromName ?? ''} ${h.from} ${h.subject}`)} `
+      return words.every((w) => hay.includes(w))
+    })
+    if (!hits.length) return { error: `No mail in the last 30 days matches "${raw}".` }
+    const thread = (h) => `${h.from.toLowerCase()}|${norm(h.subject.replace(/^((re|fwd?|aw)\s*:\s*)+/i, ''))}`
+    if (new Set(hits.map(thread)).size > 1)
+      return { error: `Which one: ${hits.slice(0, 5).map((h) => `mail ${h.id} from ${h.fromName || h.from}, “${h.subject}” (${stamp(h.at)})`).join('; ')}?` }
+    id = hits[0].id
+  }
+  try {
+    return { msg: await mailMessage(id) }
+  } catch (err) {
+    return { error: err.message }
+  }
+}
+
+/** "On <date>, <who> wrote:" and the old text, quoted — what Mail itself would put under a reply. */
+const quoteHistory = (m) =>
+  `On ${m.date}, ${m.fromName ? `${m.fromName} <${m.from}>` : m.from} wrote:\n\n${m.body
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n')}`
+
+/**
+ * Everything one email needs, checked, before the user sees it: recipients,
+ * sender, the message being answered and the files. Returns { email } or an
+ * { error } to say. Nothing here sends.
+ */
+async function buildEmail({ to, cc, bcc, subject, body, attachments, reply_to, reply_all, from, save_as_draft }) {
+  const files = emailAttachments(attachments ?? [])
+  if (files.error) return files
+  const lists = {}
+  for (const [k, v] of Object.entries({ to, cc, bcc })) {
+    const r = emailRecipients(v)
+    if (r.error) return r
+    lists[k] = r.list
+  }
+  let reply = null
+  if (reply_to !== undefined && String(reply_to).trim()) {
+    const t = await emailReplyTarget(reply_to)
+    if (t.error) return t
+    reply = { id: t.msg.id, all: reply_all === true, msg: t.msg, history: quoteHistory(t.msg) }
+  } else if (reply_all) return { error: 'Reply all needs the mail to reply to (reply_to).' }
+  if (!reply && !lists.to.length) return { error: 'Who should the email go to?' }
+  const sender = await emailSender(from)
+  if (sender.error) return sender
+  return {
+    email: {
+      to: lists.to,
+      cc: lists.cc,
+      bcc: lists.bcc,
+      subject: String(subject ?? '').trim(),
+      body,
+      files: files.files,
+      reply,
+      from: sender.from,
+      draft: save_as_draft === true,
+    },
+  }
+}
+
+/**
+ * Who a reply goes to before anything the user adds: the sender, and for
+ * reply all everyone else on it except the user's own addresses — the same
+ * people Mail's own Reply All picks, worked out here so the card can name them.
+ */
+async function replyPeople(reply) {
+  if (!reply) return { to: [], cc: [] }
+  let mine = new Set()
+  try {
+    mine = new Set((await mailAccounts()).flatMap((a) => a.addresses.map((x) => x.toLowerCase())))
+  } catch {
+    /* unknown: show everyone */
+  }
+  const keep = (a) => !mine.has(a.toLowerCase())
+  const m = reply.msg
+  const to = [m.from, ...(reply.all ? m.to : [])].filter(keep)
+  return { to: [...new Set(to)], cc: reply.all ? [...new Set(m.cc.filter(keep))] : [] }
+}
+
+const who = (r) => (r.name && r.name !== r.address ? `${r.name} <${r.address}>` : r.address)
+
+/** The approval card: every address, every file, and the whole body, so what is approved is exactly what goes. */
+async function emailCard(e) {
+  const thread = await replyPeople(e.reply)
+  const to = [...thread.to, ...e.to.map(who)]
+  const cc = [...thread.cc, ...e.cc.map(who)]
+  const subject = e.reply ? `Re: ${e.reply.msg.subject.replace(/^((re|aw)\s*:\s*)+/i, '')}` : e.subject || '(no subject)'
+  const lines = [
+    e.draft ? 'Save this email as a draft in Mail (it will NOT be sent):' : 'Send this email:',
+    `From: ${e.from ? `${e.from.address} (${e.from.account})` : "Mail's default account"}`,
+    ...(e.reply
+      ? [`${e.reply.all ? 'Reply all' : 'Reply'} to “${e.reply.msg.subject}” from ${e.reply.msg.fromName || e.reply.msg.from}, in the same thread, with the earlier mail quoted below`]
+      : []),
+    `To: ${to.join(', ') || '(nobody)'}`,
+    ...(cc.length ? [`Cc: ${cc.join(', ')}`] : []),
+    ...(e.bcc.length ? [`Bcc: ${e.bcc.map(who).join(', ')}`] : []),
+    `Subject: ${subject}`,
+    ...(e.files.length ? [`Attachments: ${e.files.map((f) => `${f.name} (${sizeText(f.size)})`).join(', ')}`] : []),
+    '',
+    e.body,
+  ]
+  return { text: lines.join('\n'), to, cc, subject }
+}
+
+/**
+ * Files in Downloads, Desktop and Documents whose name contains `query`,
+ * newest first. Read-only: it lists, it never opens. A few folders deep at
+ * most and a cap on how much it looks at, so a huge Documents folder cannot
+ * stall a voice answer. Hidden folders, links and anything attachRefusal
+ * would refuse are skipped, so it never points ZEN at a secret.
+ */
+function findFiles(query, limit = 10) {
+  const key = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+  const want = key(query)
+  if (!want) return []
+  const hits = []
+  let budget = 40_000
+  const walk = (dir, depth) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const d of entries) {
+      if (--budget < 0) return
+      if (d.name.startsWith('.') || d.isSymbolicLink()) continue
+      const p = join(dir, d.name)
+      if (d.isDirectory()) {
+        if (depth < 4 && !/^(node_modules|Library|\.git)$/.test(d.name) && !/\.(app|photoslibrary|bundle)$/i.test(d.name)) walk(p, depth + 1)
+      } else if (d.isFile() && key(d.name).includes(want) && !attachRefusal(p)) {
+        try {
+          const st = statSync(p)
+          hits.push({ path: p, size: st.size, at: st.mtimeMs })
+        } catch {
+          /* gone since the listing */
+        }
+      }
+    }
+  }
+  for (const dir of ['Downloads', 'Desktop', 'Documents']) walk(join(HOME, dir), 0)
+  return hits.sort((a, b) => b.at - a.at).slice(0, limit)
 }
 
 /**
@@ -1082,6 +1446,64 @@ Reply with JSON only: {"results":[...]}`
 
 /** `blade` puts a card on the HUD's big surface (the cab QR code); optional. */
 export function lifeServer({ ask, blade }) {
+  /** First call without words: how the user writes to this person, so the draft sounds like them. */
+  const styleHint = (channel, r) => {
+    const style = channel === 'email' ? [] : styleFor(r.address, null)
+    const convo = conversation(null, r.address)
+    return ok(
+      (style.length
+        ? `How the user writes to ${r.name} (their last ${style.length} messages, oldest first):\n${style.map((t) => `- ${t}`).join('\n')}`
+        : `No earlier messages from the user to ${r.name}; keep it short and plain.`) +
+        (convo.length ? `\nRecent conversation:\n${fence(convo.join('\n'), r.name)}` : '') +
+        `\nNow write it the way they write to ${r.name} (same language, length and tone) and call draft_message again with \`text\`.`,
+    )
+  }
+
+  /**
+   * draft_message for email. Everything is resolved and checked first (people,
+   * files, the mail being answered, the sending account); then one card shows
+   * all of it, and only Approve sends — or, with save_as_draft, saves to Mail
+   * Drafts. Decline or no answer: nothing is made at all.
+   */
+  const emailDraft = async (input, body) => {
+    if (input.attachment && !input.attachments?.includes(input.attachment)) input = { ...input, attachments: [...(input.attachments ?? []), input.attachment] }
+    if (!body) {
+      const first = splitPeople(input.to)[0]
+      const r = first ? recipient(first, 'email') : null
+      if (r?.error) return fail(r.error)
+      return styleHint('email', r ?? { name: 'them', address: '' })
+    }
+    const built = await buildEmail({ ...input, body })
+    if (built.error) return fail(built.error)
+    const e = built.email
+    const card = await emailCard(e)
+    const files = e.files.length ? ` [${e.files.length} attachment${e.files.length > 1 ? 's' : ''}: ${e.files.map((f) => f.name).join(', ')}]` : ''
+    const summary =
+      `${e.draft ? 'email draft' : 'email'}${e.reply ? ` (${e.reply.all ? 'reply all' : 'reply'} to "${e.reply.msg.subject.slice(0, 60)}")` : ''}` +
+      ` to ${card.to.join(', ').slice(0, 160)}${card.cc.length ? ` cc ${card.cc.length}` : ''}${e.bcc.length ? ` bcc ${e.bcc.length}` : ''}` +
+      `${e.from ? ` from ${e.from.address}` : ''}, "${card.subject.slice(0, 80)}"${files}: ${body.slice(0, 80)}`
+    let answer
+    try {
+      // fresh: an email is always shown and always asked, even inside an "Allow next 2 min" window.
+      answer = await ask('approve', { text: card.text, fresh: true }, 180_000)
+    } catch {
+      answer = null
+    }
+    if (answer?.ok !== true) {
+      logAction('draft_message', summary, answer ? 'declined' : 'no answer')
+      return ok(`Not ${e.draft ? 'saved' : 'sent'}: the user ${answer ? 'declined' : 'did not approve it'}.`)
+    }
+    try {
+      await runSend('email', emailArgs(e), e.files.length ? 120_000 : 30_000)
+    } catch (err) {
+      logAction('draft_message', summary, `approved, failed: ${err.message.slice(0, 120)}`)
+      return fail(`Approved, but Mail could not ${e.draft ? 'save' : 'send'} it: ${err.message}`)
+    }
+    const dry = process.env.ZEN_DRY_SEND === '1'
+    logAction('draft_message', summary, dry ? 'approved (dry run, not sent)' : e.draft ? 'saved as draft' : 'sent')
+    return ok(e.draft ? `Saved in Mail Drafts, not sent${dry ? ' (dry run)' : ''}.` : `Sent to ${card.to.join(', ')}${dry ? ' (dry run)' : ''}.`)
+  }
+
   return createSdkMcpServer({
     name: 'jarvis_life',
     version: '1.0.0',
@@ -1124,7 +1546,8 @@ export function lifeServer({ ask, blade }) {
           const lines = items
             .slice(-25)
             .reverse()
-            .map((i) => `- [${i.importance}${i.waitingOnMe ? ', waiting on you' : ''}] ${stamp(i.at)} ${i.source} · ${i.chatName}: ${i.summary}`)
+            // Mail shows its id, so "reply to that one" can name it exactly (draft_message reply_to).
+            .map((i) => `- [${i.importance}${i.waitingOnMe ? ', waiting on you' : ''}] ${stamp(i.at)} ${i.source === 'mail' ? `mail ${i.key.slice(5)}` : i.source} · ${i.chatName}: ${i.summary}`)
           return ok(`${UNTRUSTED}\n${lines.join('\n')}`)
         },
       ),
@@ -1212,33 +1635,38 @@ export function lifeServer({ ask, blade }) {
         'Send a message for the user by iMessage, SMS or email. When you are writing it for them, call first ' +
           'WITHOUT `text`: you get how they usually write to this person; then call again with the text in their voice. ' +
           'The user always sees it on screen and must press Approve; nothing is sent otherwise. ' +
-          '`to` is a contact name, number or email address.',
+          '`to` is a contact name, number or email address. Email only: several people in `to`, `cc`, `bcc`; ' +
+          '`attachments` (file paths the user named; find_file finds "the latest X in Downloads"); `reply_to` to answer ' +
+          'a mail in its thread (an id from inbox, or sender/subject words), `reply_all`; `from` (an address or ' +
+          'account word like "work"; mail_accounts lists them); `save_as_draft` to leave it in Mail Drafts unsent.',
         {
           channel: z.enum(['imessage', 'sms', 'email']),
-          to: z.string(),
+          to: z.union([z.string(), z.array(z.string())]).optional().catch(undefined).describe('Who it goes to. Email: one or more names or addresses (a list, or comma separated). Can be left out on an email reply.'),
           text: z.string().optional().catch(undefined).describe('The message, exactly as it should be sent. Leave out to see their style first.'),
-          subject: z.string().optional().catch(undefined).describe('Email only.'),
-          attachment: z.string().optional().catch(undefined).describe('iMessage only: a boarding pass check_in saved (its path). Nothing else can be attached.'),
+          subject: z.string().optional().catch(undefined).describe('Email only. Not used on a reply (Mail writes "Re:").'),
+          cc: z.union([z.string(), z.array(z.string())]).optional().catch(undefined).describe('Email only: names or addresses.'),
+          bcc: z.union([z.string(), z.array(z.string())]).optional().catch(undefined).describe('Email only: names or addresses.'),
+          attachments: z.array(z.string()).optional().catch(undefined).describe('Email only: paths of files the user asked to attach (~ is fine). 20 MB each, 25 MB in all; keys and credentials are always refused.'),
+          reply_to: z.string().optional().catch(undefined).describe('Email only: the mail to reply to, as its id from inbox ("mail 12345") or words from its sender and subject.'),
+          reply_all: z.boolean().optional().catch(undefined).describe('Email only, with reply_to: reply to everyone on it.'),
+          from: z.string().optional().catch(undefined).describe('Email only: which of the user\'s addresses to send from (an address, or an account word like "work"). Default: Mail\'s default account.'),
+          save_as_draft: z.boolean().optional().catch(undefined).describe('Email only: put it in Mail Drafts instead of sending.'),
+          attachment: z.string().optional().catch(undefined).describe('iMessage only: a boarding pass check_in saved (its path). Nothing else can be attached by iMessage.'),
         },
-        async ({ channel, to, text, subject, attachment }) => {
-          const r = recipient(to, channel)
+        async (input) => {
+          const { channel, text, subject, attachment } = input
+          const body = String(text ?? '').trim()
+          if (channel === 'email') return emailDraft(input, body)
+          const extras = ['cc', 'bcc', 'attachments', 'reply_to', 'reply_all', 'from', 'save_as_draft'].filter((k) => input[k] !== undefined && input[k] !== false)
+          if (extras.length) return fail(`${extras.join(', ')} only ${extras.length > 1 ? 'work' : 'works'} for email.`)
+          const people = splitPeople(input.to)
+          if (people.length > 1) return fail(`By ${CHANNELS[channel]} I send to one person at a time.`)
+          const r = recipient(people[0], channel)
           if (r.error) return fail(r.error)
           const file = attachment ? boardingFile(attachment) : null
           if (attachment && (!file || channel !== 'imessage')) return fail('Only a boarding pass ZEN saved can be attached, and only by iMessage.')
-          const body = String(text ?? '').trim()
-          if (!body) {
-            const style = channel === 'email' ? [] : styleFor(r.address, null)
-            const convo = conversation(null, r.address)
-            return ok(
-              (style.length
-                ? `How the user writes to ${r.name} (their last ${style.length} messages, oldest first):\n${style.map((t) => `- ${t}`).join('\n')}`
-                : `No earlier messages from the user to ${r.name}; keep it short and plain.`) +
-                (convo.length ? `\nRecent conversation:\n${fence(convo.join('\n'), r.name)}` : '') +
-                `\nNow write it the way they write to ${r.name} (same language, length and tone) and call draft_message again with \`text\`.`,
-            )
-          }
-          const shown = channel === 'email' && subject ? `${subject} — ${body}` : body
-          const preview = shown.length > 400 ? `${shown.slice(0, 400)}…` : shown
+          if (!body) return styleHint(channel, r)
+          const preview = body.length > 400 ? `${body.slice(0, 400)}…` : body
           const summary = `${CHANNELS[channel]} to ${r.name}${r.name !== r.address ? ` (${r.address})` : ''}: ${body.slice(0, 80)}`
           let answer
           try {
@@ -1251,7 +1679,7 @@ export function lifeServer({ ask, blade }) {
             return ok(`Not sent: the user ${answer ? 'declined' : 'did not approve it'}.`)
           }
           try {
-            await send(channel, r.address, body, subject, file)
+            await send(channel, r.address, body, file)
           } catch (err) {
             logAction('draft_message', summary, `approved, failed: ${err.message.slice(0, 120)}`)
             return fail(`Approved, but sending failed: ${err.message}`)
@@ -1260,6 +1688,26 @@ export function lifeServer({ ask, blade }) {
           return ok(`Sent to ${r.name} by ${CHANNELS[channel]}.`)
         },
       ),
+      tool(
+        'find_file',
+        'Find a file the user means ("the latest invoice in Downloads") by part of its name, in Downloads, Desktop ' +
+          'and Documents, newest first. Read-only; gives paths to pass to draft_message `attachments`.',
+        { name: z.string().describe('Part of the file name, e.g. "invoice" or "boarding".') },
+        async ({ name }) => {
+          const hits = findFiles(String(name ?? ''))
+          if (!hits.length) return ok(`No file named like "${name}" in Downloads, Desktop or Documents.`)
+          return ok(hits.map((h, i) => `${i + 1}. ${h.path} (${sizeText(h.size)}, changed ${sayDay(h.at)} ${sayTime(h.at)})`).join('\n'))
+        },
+      ),
+      tool('mail_accounts', "The user's Mail accounts and the addresses each can send from (for draft_message `from`).", {}, async () => {
+        try {
+          const accounts = await mailAccounts()
+          if (!accounts.length) return ok('Mail has no accounts set up.')
+          return ok(`${accounts.map((a) => `${a.name}: ${a.addresses.join(', ')}`).join('\n')}\nWithout \`from\`, Mail uses its default account.`)
+        } catch (err) {
+          return fail(err.message)
+        }
+      }),
       tool(
         'briefing',
         'The day in one go: today\'s events, what needs the user since yesterday, who is waiting on a reply, ' +

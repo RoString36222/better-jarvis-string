@@ -34,6 +34,7 @@ type Frame = {
   mode?: string
   seconds?: number
   when?: string
+  fresh?: boolean
   servers?: Array<string | { name?: string }>
 }
 
@@ -91,8 +92,10 @@ export function watchBlades(fn: (blade: Blade) => void) {
 }
 
 /** An action ZEN wants to take on the user's behalf; resolves true to allow it. */
-let onApprove: ((text: string) => Promise<boolean>) | null = null
-export function watchApprove(fn: (text: string) => Promise<boolean>) {
+// `fresh`: this card must be seen and answered every time, even inside an
+// "Allow next 2 min" window (an email with attachments, say).
+let onApprove: ((text: string, fresh: boolean) => Promise<boolean>) | null = null
+export function watchApprove(fn: (text: string, fresh: boolean) => Promise<boolean>) {
   onApprove = fn
 }
 
@@ -225,7 +228,7 @@ function dispatch(ws: WebSocket) {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'reply', id, ok }))
       }
       if (!onApprove) answer(false)
-      else onApprove(String(msg.text ?? '')).then(answer).catch(() => answer(false))
+      else onApprove(String(msg.text ?? ''), msg.fresh === true).then(answer).catch(() => answer(false))
     } else if (msg.type === 'ui' && msg.op) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.

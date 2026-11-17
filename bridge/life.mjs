@@ -685,6 +685,139 @@ end run`
   }
 }
 
+const mailErr = (err) =>
+  /-1743|not authori[sz]ed|not allowed/i.test(err.message) ? new NeedsAccess('mail') : new Error(`Mail did not answer: ${err.message}`)
+
+/** Splits "Name <a@b.c>" into its parts; a bare address has no name. */
+function splitSender(s) {
+  const m = /^(.*?)\s*<([^>]+)>$/.exec(String(s ?? '').trim())
+  return { address: (m ? m[2] : String(s ?? '')).trim(), name: clean(m ? m[1].replace(/^"|"$/g, '') : '', 80) || null }
+}
+
+/**
+ * One inbox message in enough detail to reply to it: who sent it, who else
+ * it went to (for reply all), its subject and date, and its text (to quote
+ * if Mail leaves the reply empty). By the id mail() gives. Untrusted, like
+ * every word someone else wrote.
+ */
+export async function mailMessage(id) {
+  if (!/^\d+$/.test(String(id ?? '').trim())) throw new Error('Not a Mail message id.')
+  const script = `on run argv
+  set us to ASCII character 31
+  set rs to ASCII character 30
+  tell application "Mail"
+    set m to first message of inbox whose id is (item 1 of argv as integer)
+    set tos to ""
+    repeat with r in to recipients of m
+      set tos to tos & (address of r) & us
+    end repeat
+    set ccs to ""
+    repeat with r in cc recipients of m
+      set ccs to ccs & (address of r) & us
+    end repeat
+    set body to ""
+    try
+      set body to content of m
+    end try
+    return (id of m as string) & rs & (sender of m) & rs & (subject of m) & rs & ((date received of m) as string) & rs & tos & rs & ccs & rs & body
+  end tell
+end run`
+  let out
+  try {
+    out = await osa(script, [String(id).trim()], 10_000)
+  } catch (err) {
+    if (/-1728|can.t get/i.test(err.message)) throw new Error('That message is no longer in the inbox.')
+    throw mailErr(err)
+  }
+  const [mid, sender, subject, date, tos, ccs, ...rest] = out.replace(/\n$/, '').split(ROW)
+  const list = (s) => String(s ?? '').split(SEP).map((a) => a.trim()).filter(Boolean)
+  const from = splitSender(sender)
+  return {
+    id: mid.trim(),
+    from: from.address,
+    fromName: from.name,
+    subject: clean(subject, 200) || '(no subject)',
+    date: String(date ?? '').trim(),
+    to: list(tos),
+    cc: list(ccs),
+    body: rest.join(ROW).slice(0, 20_000),
+  }
+}
+
+/**
+ * Inbox headers only (no bodies, so it stays quick) for the last `days`:
+ * { id, at, from, fromName, subject }, newest first. Used to find "the mail
+ * from Rahul about the invoice" when the user wants to reply to it.
+ */
+export async function mailHeaders(days = 30, limit = 400) {
+  const script = `on run argv
+  set cutoff to (current date) - ((item 1 of argv as integer) * days)
+  set maxN to item 2 of argv as integer
+  set us to ASCII character 31
+  set rs to ASCII character 30
+  set out to ""
+  tell application "Mail"
+    set msgs to (messages of inbox whose date received > cutoff)
+    set n to 0
+    repeat with m in msgs
+      set n to n + 1
+      if n > maxN then exit repeat
+      set out to out & (id of m) & us & ((date received of m) as «class isot» as string) & us & (sender of m) & us & (subject of m) & rs
+    end repeat
+  end tell
+  return out
+end run`
+  let out
+  try {
+    out = await osa(script, [String(days), String(limit)], 20_000)
+  } catch (err) {
+    throw mailErr(err)
+  }
+  return out
+    .split(ROW)
+    .map((r) => r.split(SEP))
+    .filter((f) => f.length >= 4 && f[0].trim())
+    .map(([id, date, sender, ...subject]) => {
+      const s = splitSender(sender)
+      return { id: id.trim(), at: Date.parse(date.trim()) || 0, from: s.address, fromName: s.name, subject: clean(subject.join(' '), 200) || '(no subject)' }
+    })
+    .sort((a, b) => b.at - a.at)
+}
+
+/**
+ * The user's Mail accounts and the addresses each can send from:
+ * [{ name, addresses }]. Account names are the user's own labels ("Work",
+ * "iCloud"), which is what "send it from my work account" matches against.
+ */
+export async function mailAccounts() {
+  const script = `set us to ASCII character 31
+set rs to ASCII character 30
+set out to ""
+tell application "Mail"
+  set names to name of every account
+  set addrLists to email addresses of every account
+end tell
+repeat with i from 1 to count of names
+  set addrs to ""
+  repeat with e in item i of addrLists
+    set addrs to addrs & (contents of e) & us
+  end repeat
+  set out to out & (item i of names) & us & addrs & rs
+end repeat
+return out`
+  let out
+  try {
+    out = await osa(script, [], 10_000)
+  } catch (err) {
+    throw mailErr(err)
+  }
+  return out
+    .split(ROW)
+    .map((r) => r.split(SEP).map((s) => s.trim()).filter(Boolean))
+    .filter((f) => f.length >= 2)
+    .map(([name, ...addresses]) => ({ name, addresses }))
+}
+
 // ----------------------------------------------------------------- access
 
 /**

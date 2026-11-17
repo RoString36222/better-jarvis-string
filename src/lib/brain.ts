@@ -136,6 +136,6 @@ export function connectedLabels(): string[] {
 }
 
 /** ZEN asking permission before it acts. Bridge only. */
-export function watchApprove(fn: (text: string) => Promise<boolean>): void {
+export function watchApprove(fn: (text: string, fresh: boolean) => Promise<boolean>): void {
   if (usingBridge) bridge.watchApprove(fn)
 }
