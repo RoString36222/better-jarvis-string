@@ -179,6 +179,10 @@ export async function imageSearch(q, n) {
     .map((x) => ({ url: x.info.thumburl || x.info.url, title: x.title, source: 'Wikimedia Commons' }))
 }
 
+/** Real web results when a search key is set, else null (Wikipedia cannot find an airline's check-in page). */
+export const webResults = (q, n = 8) =>
+  process.env.SERPER_API_KEY ? serper(q, n) : process.env.BRAVE_SEARCH_API_KEY ? brave(q, n) : Promise.resolve(null)
+
 export const searchSource = () =>
   process.env.SERPER_API_KEY ? 'serper' : process.env.BRAVE_SEARCH_API_KEY ? 'brave' : 'wikipedia'
 

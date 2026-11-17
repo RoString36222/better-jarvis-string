@@ -26,7 +26,7 @@ import { clean, fence } from './sanitize.mjs'
  *    airport buffer — two hours domestic, three international. ZEN says it
  *    thirty minutes before leave-by, again at leave-by if nobody answered,
  *    and nudges web check-in the day before (two days for Air India or
- *    abroad).
+ *    abroad) — "Shall I check you in?", which leads to check_in (checkin.mjs).
  *
  * 3. The cab. compare_cabs reads Uber's own fares from its mobile site in
  *    Safari (after the user allows it) and says them; Namma Yatri shows fares
@@ -122,7 +122,7 @@ const AIRPORTS = {
 }
 /** Cities for the airports not in the table, so "your flight to Dubai" still reads right. */
 const CITY = { DXB: 'Dubai', SIN: 'Singapore', LHR: 'London', DOH: 'Doha', AUH: 'Abu Dhabi', BKK: 'Bangkok', KUL: 'Kuala Lumpur', IXE: 'Mangaluru', IXM: 'Madurai', CJB: 'Coimbatore', IXZ: 'Port Blair', VNS: 'Varanasi', ATQ: 'Amritsar', RPR: 'Raipur', BHO: 'Bhopal', IXR: 'Ranchi', UDR: 'Udaipur', DED: 'Dehradun', IXJ: 'Jammu', IXL: 'Leh', HBX: 'Hubballi', MYQ: 'Mysuru', TIR: 'Tirupati' }
-const cityOf = (iata) => AIRPORTS[iata]?.city ?? CITY[iata] ?? iata.split('').join(' ')
+export const cityOf = (iata) => AIRPORTS[iata]?.city ?? CITY[iata] ?? iata.split('').join(' ')
 
 const AIRLINES = { '6E': 'IndiGo', AI: 'Air India', IX: 'Air India Express', QP: 'Akasa Air', SG: 'SpiceJet', UK: 'Vistara', I5: 'Air India Express', '9I': 'Alliance Air', S5: 'Star Air', EK: 'Emirates', QR: 'Qatar Airways', EY: 'Etihad', SQ: 'Singapore Airlines' }
 
@@ -496,6 +496,7 @@ export async function tripText(now = Date.now(), withinMs = 3 * DAY) {
   const day = dayWord(t.depart, now)
   let line = `Sir, ${flightWords(t)}, is ${day} at ${departClock(t)}${terminalWords(t)}.`
   if (t.status === 'rescheduled') line += ' That is the new time after the schedule change.'
+  if (t.checkedIn) line += ` You're checked in${t.checkedIn.seat ? `, seat ${t.checkedIn.seat}` : ''}.`
   if (t.leaveBy && t.leaveBy > now) line += ` Leave by ${localClock(t.leaveBy)}${dayWord(t.leaveBy, now) === day ? '' : ` ${dayWord(t.leaveBy, now)}`}.`
   else if (t.leaveBy && t.leaveBy <= now && t.depart > now) line += ' You should be on your way already.'
   return line
@@ -539,8 +540,10 @@ export function travelTick({ notify = () => {}, now = Date.now(), inject = null,
       // Web check-in: IndiGo, Akasa and friends open a day ahead; Air India
       // and international flights two.
       const opens = t.depart - (t.international || /^AI /.test(t.flightNo) ? 48 : 24) * HOUR
-      if (now >= opens && now < t.depart - 3 * HOUR) {
-        say(`${t.id}:checkin`, `Sir, web check-in is open for ${flightWords(t)}, ${dayWord(t.depart, now)} at ${departClock(t)}. Shall I remind you to do it?`)
+      // Offered, not done: a "yes" is what starts check_in (checkin.mjs), and
+      // every step of it still waits for the user's Allow.
+      if (now >= opens && now < t.depart - 3 * HOUR && !t.checkedIn) {
+        say(`${t.id}:checkin`, `Sir, web check-in is open for ${flightWords(t)}, ${dayWord(t.depart, now)} at ${departClock(t)}. Shall I check you in?`)
       }
       if (t.depart > now + 36 * HOUR) continue
       const plan = await planTrip(state, t).catch((err) => (warnOnce('plan', err), {}))
@@ -779,6 +782,26 @@ export async function openCab({ provider, trip: q, blade, now = Date.now() }) {
 
 // ------------------------------------------------------------ tool helpers
 
+/** The trip a check-in is for (checkin.mjs): by id, flight number or city, else the next one. */
+export function findTrip(q, now = Date.now()) {
+  return pick(load(), q, now)
+}
+
+/**
+ * Records a finished web check-in on the trip, so the briefing and "when is
+ * my flight?" say "checked in, seat 14A" and the nudge is not repeated.
+ */
+export function markCheckedIn(id, { seat = null, file = null } = {}) {
+  return serial(async () => {
+    const state = load()
+    const t = state.trips.find((x) => x.id === id)
+    if (!t) return null
+    t.checkedIn = { at: Date.now(), seat, file }
+    save(state)
+    return t
+  })
+}
+
 /** Upcoming flights as tool text (not spoken verbatim). */
 export function tripsList(now = Date.now()) {
   const list = upcoming(load(), now)
@@ -787,7 +810,7 @@ export function tripsList(now = Date.now()) {
     .map(
       (t) =>
         `${t.id}: ${t.airline} ${t.flightNo} ${t.from}→${t.to}, ${t.departLocal}${t.terminal ? `, ${t.terminal}` : ''}${t.pnr ? `, PNR ${t.pnr}` : ''}` +
-        `${t.status === 'rescheduled' ? ' (rescheduled)' : ''}${t.leaveBy ? `, leave by ${localClock(t.leaveBy)} (${t.driveMin} min drive)` : ''} [from ${t.sources.join(', ')}]`,
+        `${t.status === 'rescheduled' ? ' (rescheduled)' : ''}${t.checkedIn ? `, checked in${t.checkedIn.seat ? ` seat ${t.checkedIn.seat}` : ''}` : ''}${t.leaveBy ? `, leave by ${localClock(t.leaveBy)} (${t.driveMin} min drive)` : ''} [from ${t.sources.join(', ')}]`,
     )
     .join('\n')
 }

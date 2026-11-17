@@ -1,13 +1,14 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { execFile } from 'node:child_process'
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { completeJson } from './llm.mjs'
 import { addReminder } from './mac.mjs'
 import { NeedsAccess, access, calendar, contactName, findContact, mail, messages, missedCalls, phoneKey, sentTo } from './life.mjs'
 import { clean, fence, injectionSigns, safeSummary } from './sanitize.mjs'
+import { checkIn, checkInContinue } from './checkin.mjs'
 import { compareCabs, forgetTrip, openCab, scanTrips, travelTick, tripText, tripsList } from './travel.mjs'
 
 /**
@@ -985,12 +986,29 @@ function recipient(to, channel) {
   return { name: p.name, address }
 }
 
+/**
+ * The one kind of file ZEN may attach: a boarding pass it saved itself
+ * (checkin.mjs). Resolved first, so a link named like one cannot point at
+ * anything else on the Mac. Null when the path is not one.
+ */
+const BOARDING_DIR = join(process.env.ZEN_STATE_DIR || join(homedir(), '.string'), 'boarding')
+function boardingFile(path) {
+  try {
+    const real = realpathSync(String(path))
+    const dir = realpathSync(BOARDING_DIR)
+    return real.startsWith(`${dir}/`) && /\.(pdf|png)$/i.test(real) ? real : null
+  } catch {
+    return null
+  }
+}
+
 /** The fixed scripts that send. Recipient and words are arguments (execFile, no shell), never part of the script. */
 const SEND = {
   imessage: `on run argv
   tell application "Messages"
     set svc to 1st account whose service type = iMessage
     send (item 2 of argv) to participant (item 1 of argv) of svc
+    if (count of argv) > 2 then send (POSIX file (item 3 of argv)) to participant (item 1 of argv) of svc
   end tell
 end run`,
   sms: `on run argv
@@ -1014,9 +1032,9 @@ end run`,
 end run`,
 }
 
-function send(channel, address, text, subject) {
+function send(channel, address, text, subject, attachment) {
   if (process.env.ZEN_DRY_SEND === '1') return Promise.resolve()
-  const args = channel === 'email' ? [address, subject || '', text] : [address, text]
+  const args = channel === 'email' ? [address, subject || '', text] : [address, text, ...(attachment ? [attachment] : [])]
   return new Promise((resolve, reject) =>
     execFile('osascript', ['-e', SEND[channel], ...args], { timeout: 30_000 }, (err, _o, stderr) =>
       err ? reject(new Error(String(stderr || err.message).trim())) : resolve(),
@@ -1200,10 +1218,13 @@ export function lifeServer({ ask, blade }) {
           to: z.string(),
           text: z.string().optional().catch(undefined).describe('The message, exactly as it should be sent. Leave out to see their style first.'),
           subject: z.string().optional().catch(undefined).describe('Email only.'),
+          attachment: z.string().optional().catch(undefined).describe('iMessage only: a boarding pass check_in saved (its path). Nothing else can be attached.'),
         },
-        async ({ channel, to, text, subject }) => {
+        async ({ channel, to, text, subject, attachment }) => {
           const r = recipient(to, channel)
           if (r.error) return fail(r.error)
+          const file = attachment ? boardingFile(attachment) : null
+          if (attachment && (!file || channel !== 'imessage')) return fail('Only a boarding pass ZEN saved can be attached, and only by iMessage.')
           const body = String(text ?? '').trim()
           if (!body) {
             const style = channel === 'email' ? [] : styleFor(r.address, null)
@@ -1221,7 +1242,7 @@ export function lifeServer({ ask, blade }) {
           const summary = `${CHANNELS[channel]} to ${r.name}${r.name !== r.address ? ` (${r.address})` : ''}: ${body.slice(0, 80)}`
           let answer
           try {
-            answer = await ask('approve', { text: `Send to ${r.name} (${CHANNELS[channel]}): “${preview}”` }, 120_000)
+            answer = await ask('approve', { text: `Send to ${r.name} (${CHANNELS[channel]}): “${preview}”${file ? ` with ${file.split('/').pop()}` : ''}` }, 120_000)
           } catch {
             answer = null
           }
@@ -1230,7 +1251,7 @@ export function lifeServer({ ask, blade }) {
             return ok(`Not sent: the user ${answer ? 'declined' : 'did not approve it'}.`)
           }
           try {
-            await send(channel, r.address, body, subject)
+            await send(channel, r.address, body, subject, file)
           } catch (err) {
             logAction('draft_message', summary, `approved, failed: ${err.message.slice(0, 120)}`)
             return fail(`Approved, but sending failed: ${err.message}`)
@@ -1328,6 +1349,32 @@ export function lifeServer({ ask, blade }) {
         },
         async ({ provider, trip }) => {
           const r = await openCab({ provider, trip, blade })
+          return ok(r.text)
+        },
+      ),
+      tool(
+        'check_in',
+        'Web check-in for a flight (default the next one) on the airline\'s own site in Safari: ZEN fills the PNR and surname, ' +
+          'takes a free seat (window by default), and gets the boarding pass. Every step is an Allow card. Never pays; stops for ' +
+          'OTPs, CAPTCHAs, passports and declarations. Use when the user says yes to "Shall I check you in?" or asks to check in. ' +
+          'Pass last_name or email only when the user just told you (it is kept for next time).',
+        {
+          trip: z.string().optional().catch(undefined).describe('Trip id, flight number or destination city; default the next flight.'),
+          last_name: z.string().optional().catch(undefined).describe('The surname on the booking, if the user just said it.'),
+          email: z.string().optional().catch(undefined).describe('The email on the booking, if the user just said it.'),
+        },
+        async ({ trip, last_name, email }) => {
+          const r = await checkIn({ ask, blade, trip, lastName: last_name, email })
+          return ok(r.text)
+        },
+      ),
+      tool(
+        'check_in_continue',
+        'Carry on a web check-in that stopped for the user (OTP entered, CAPTCHA solved, passport or declaration filled in). ' +
+          'For "continue" / "done" after ZEN said it was waiting on them.',
+        {},
+        async () => {
+          const r = await checkInContinue()
           return ok(r.text)
         },
       ),

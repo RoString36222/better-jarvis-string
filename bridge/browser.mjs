@@ -35,8 +35,15 @@ const OFF_LIMITS =
 /**
  * Lists the controls on the page with stable ids (data-zen-id), labels,
  * types and current values — the model's "view" of the form.
+ *
+ * `max` caps the list (a seat map has a hundred-odd buttons); `near` adds the
+ * text of the smallest box around each control, which is where a price or a
+ * "pay" sits when the button itself only says "Continue" — check-in
+ * (checkin.mjs) judges every click on that, not on the label alone.
+ * `extra` widens what counts as a control: SpiceJet's Check-In tab is a bare
+ * <div tabindex> with no role.
  */
-const SCAN = `(() => {
+export const scanJs = ({ max = 80, near = false, extra = '' } = {}) => `(() => {
   const label = (el) => {
     const byFor = el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]')
     const wrap = el.closest('label')
@@ -48,24 +55,36 @@ const SCAN = `(() => {
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' }
   let n = 0
   const out = []
-  for (const el of document.querySelectorAll('input, textarea, select, button, [role=button], a[href], [role=checkbox]')) {
+  const nearText = (el) => {
+    let box = el.parentElement
+    for (let i = 0; box && i < 4; i++, box = box.parentElement) {
+      const t = String(box.innerText || '').replace(/\\s+/g, ' ').trim()
+      if (t.length > 160) break
+      if (t && t !== label(el)) return t
+    }
+    return ''
+  }
+  for (const el of document.querySelectorAll('input, textarea, select, button, [role=button], a[href], [role=checkbox], [role=radio], [role=tab]${extra ? `, ${extra}` : ''}')) {
     if (!vis(el) || el.type === 'hidden') continue
     if (!el.dataset.zenId) el.dataset.zenId = 'z' + (++n) + Math.random().toString(36).slice(2, 5)
     const tag = el.tagName.toLowerCase()
     out.push({
       id: el.dataset.zenId,
-      kind: tag === 'a' ? 'link' : tag === 'button' || el.getAttribute('role') === 'button' ? 'button' : el.type === 'checkbox' || el.getAttribute('role') === 'checkbox' ? 'checkbox' : tag === 'select' ? 'select' : el.type === 'password' ? 'password' : 'text',
+      kind: tag === 'a' ? 'link' : tag === 'button' || el.getAttribute('role') === 'button' || !['input', 'textarea', 'select'].includes(tag) && el.getAttribute('role') !== 'checkbox' || el.type === 'radio' || el.type === 'submit' || el.type === 'button' ? 'button' : el.type === 'checkbox' || el.getAttribute('role') === 'checkbox' ? 'checkbox' : tag === 'select' ? 'select' : el.type === 'password' ? 'password' : 'text',
       label: label(el),
       value: el.type === 'checkbox' ? String(el.checked) : el.type === 'password' ? '' : String(el.value ?? '').slice(0, 60),
       required: Boolean(el.required || el.getAttribute('aria-required') === 'true'),
+      ${near ? "near: nearText(el).slice(0, 160)," : ''}
+      ${near ? "disabled: Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true')," : ''}
     })
-    if (out.length >= 80) break
+    if (out.length >= ${max}) break
   }
-  return JSON.stringify({ url: location.href, title: document.title, controls: out })
+  return JSON.stringify({ url: location.href, title: document.title, ready: document.readyState, controls: out${near ? ", text: String(document.body ? document.body.innerText : '').slice(0, 6000)" : ''} })
 })()`
+const SCAN = scanJs()
 
 /** Types into an input the way a React form notices: native setter + events. */
-const fillJs = (id, text) => `(() => {
+export const fillJs = (id, text) => `(() => {
   const el = document.querySelector('[data-zen-id="${id}"]')
   if (!el) return 'gone'
   el.focus()
@@ -76,7 +95,7 @@ const fillJs = (id, text) => `(() => {
   return 'ok'
 })()`
 
-const clickJs = (id) => `(() => {
+export const clickJs = (id) => `(() => {
   const el = document.querySelector('[data-zen-id="${id}"]')
   if (!el) return 'gone'
   el.scrollIntoView({ block: 'center' })
@@ -100,7 +119,7 @@ const safariError = (err) =>
  * not on every call, so it does not fight the user moving windows.
  */
 let shownAt = 0
-async function showSafari() {
+export async function showSafari() {
   if (Date.now() - shownAt < 90_000) return
   shownAt = Date.now()
   try {

@@ -289,6 +289,8 @@ function describeTool(name, input = {}) {
   if (tool === 'trips') return 'Checking your trips…'
   if (tool === 'trip_forget') return 'Forgetting that flight…'
   if (tool === 'compare_cabs') return 'Comparing cabs (waiting for your OK to open Uber)…'
+  if (tool === 'check_in') return 'Checking you in (each step waits for your OK)…'
+  if (tool === 'check_in_continue') return 'Carrying on with check-in…'
   if (tool === 'open_cab') return `Opening ${input.provider === 'uber' ? 'Uber' : 'Namma Yatri'} for your phone…`
   if (tool === 'screen_context') return 'Looking at what you are doing…'
   if (tool === 'look_at_screen') return 'Looking at your screen…'
@@ -504,6 +506,15 @@ Chief of staff — your life tools:
   text them the link (draft_message to their own number). Never book, pay or
   confirm a ride — they do that in the app. Offer cabs once; if they decline,
   drop it. Never read links or codes aloud.
+- Web check-in: when check-in opens ZEN asks "Shall I check you in?". On a
+  yes, call \`check_in\` once and say the line it gives you. It works the
+  airline's own page in Safari, one Allow card per step, takes only free
+  seats, and never pays — never offer to pay or pick a paid seat. When it
+  stops for an OTP, CAPTCHA, passport or declaration, say its line and wait;
+  on "continue" call \`check_in_continue\`. If it needs their surname, ask,
+  then call \`check_in\` again with \`last_name\`. When done, offer once to
+  text the boarding pass (draft_message with the attachment it names).
+  Offer check-in once; if they decline, drop it.
 
 Safety: some actions put an Allow card on screen and wait. Say in one
 sentence what you are about to do; if they decline, accept it and move on.
