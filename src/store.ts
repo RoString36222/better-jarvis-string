@@ -307,11 +307,31 @@ type State = {
   clearScreen: (what: 'all' | 'panels' | 'transcript') => void
 }
 
+/**
+ * The conversation on screen survives closing ZEN, like the conversation
+ * itself does on the bridge (session.json there). Twelve hours, the same
+ * window as the bridge's resume, so the screen never shows a conversation
+ * the agent no longer remembers. Storage can be blocked or full; then the
+ * transcript simply starts empty, as it always did.
+ */
+const TURNS_KEY = 'zen.turns'
+const TURNS_TTL = 12 * 3_600_000
+
+function savedTurns(): Turn[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TURNS_KEY) ?? 'null') as { at: number; turns: Turn[] } | null
+    if (!raw || !Array.isArray(raw.turns) || Date.now() - raw.at > TURNS_TTL) return []
+    return raw.turns.slice(-40)
+  } catch {
+    return []
+  }
+}
+
 export const useStore = create<State>((set) => ({
   phase: 'offline',
   level: 0,
   caption: '',
-  turns: [],
+  turns: savedTurns(),
   activeTool: null,
   error: null,
   connected: [],
@@ -513,3 +533,15 @@ if (import.meta.env.DEV) {
     },
   )
 }
+
+let lastTurns = useStore.getState().turns
+useStore.subscribe((state) => {
+  if (state.turns === lastTurns) return
+  lastTurns = state.turns
+  try {
+    if (state.turns.length) localStorage.setItem(TURNS_KEY, JSON.stringify({ at: Date.now(), turns: state.turns.slice(-40) }))
+    else localStorage.removeItem(TURNS_KEY)
+  } catch {
+    /* storage full or blocked: the transcript just won't survive a reload */
+  }
+})

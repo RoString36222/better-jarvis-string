@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { completeJson } from './llm.mjs'
 import { addReminder } from './mac.mjs'
-import { NeedsAccess, access, calendar, contactName, findContact, mail, mailAccounts, mailHeaders, mailMessage, messages, missedCalls, phoneKey, sentTo } from './life.mjs'
+import { NeedsAccess, access, calendar, contactName, findContact, mail, mailAccounts, mailHeaders, mailMessage, mailPeopleStale, matchMailPeople, messages, missedCalls, phoneKey, refreshMailPeople, sentTo } from './life.mjs'
 import { CRED_PATH, redact } from './gate.mjs'
 import { clean, fence, injectionSigns, safeSummary } from './sanitize.mjs'
 import { checkIn, checkInContinue } from './checkin.mjs'
@@ -786,6 +786,8 @@ async function tick({ notify = () => {}, now = Date.now() } = {}) {
  * to be spoken. Off when STRING_CHIEF_MINUTES=0. Returns stop().
  */
 export function startChief({ notify }) {
+  // The address book from mail, so "mail my HR" works from the first ask.
+  if (mailPeopleStale()) void refreshMailPeople()
   const minutes = Number(process.env.STRING_CHIEF_MINUTES ?? 5)
   if (!Number.isFinite(minutes) || minutes <= 0) return () => {}
   let timer = null
@@ -965,6 +967,22 @@ const eventLine = (e, many) =>
 const CHANNELS = { imessage: 'iMessage', sms: 'SMS', email: 'email' }
 const isPhone = (s) => /^\+?[\d\s().-]{7,}$/.test(s)
 
+/**
+ * "My HR", "Priya", "finance" -> an address the user has actually mailed or
+ * heard from (life.mjs builds that book from Mail in the background). One
+ * clear winner is used — the Allow card still shows the address before
+ * anything goes — and several close ones come back as a question.
+ */
+function fromMail(raw) {
+  if (mailPeopleStale()) void refreshMailPeople()
+  const hits = matchMailPeople(raw)
+  if (!hits.length) return null
+  const [top, next] = hits
+  if (!next || top.score >= next.score * 2) return { name: top.name || top.address, address: top.address }
+  const list = hits.slice(0, 4).map((h) => `${h.name || h.address} (${h.address})`).join(', ')
+  return { error: `Which ${raw} — ${list}?` }
+}
+
 /** Turns "Rahul" / a number / an address into { name, address } for the channel, or an error to say. */
 function recipient(to, channel) {
   const raw = String(to ?? '').trim()
@@ -978,11 +996,17 @@ function recipient(to, channel) {
   try {
     people = findContact(raw)
   } catch (err) {
+    // Contacts unreadable (no Full Disk Access): an email can still be found
+    // in the user's own mail.
+    if (channel === 'email') return fromMail(raw) ?? { error: `I couldn't find ${raw} in your contacts or your mail. What is their address?` }
     return { error: `${err.message} Or give me their number or address.` }
   }
   const exact = people.filter((p) => norm(p.name) === norm(raw))
   if (exact.length === 1) people = exact
   const usable = people.filter((p) => (channel === 'email' ? p.emails.length : p.phones.length || (channel === 'imessage' && p.emails.length)))
+  if (!usable.length && channel === 'email') {
+    return fromMail(raw) ?? { error: `I couldn't find ${raw} in your contacts or your mail. What is their address?` }
+  }
   if (!usable.length) return { error: `I couldn't find ${channel === 'email' ? 'an email address' : 'a number'} for ${raw} in your contacts.` }
   if (usable.length > 1) return { error: `Which ${raw}: ${usable.map((p) => p.name).join(', ')}?` }
   const p = usable[0]
@@ -1618,12 +1642,22 @@ export function lifeServer({ ask, blade }) {
       ),
       tool(
         'contact_lookup',
-        "Find someone in the user's contacts by name: their numbers and emails.",
+        "Find someone by name or role (\"HR\", \"finance\") in the user's contacts, or else in the people they have emailed: numbers and emails.",
         { query: z.string() },
         async ({ query }) => {
           try {
-            const people = findContact(query)
-            if (!people.length) return ok(`No contact matches "${query}".`)
+            let people = []
+            try {
+              people = findContact(query)
+            } catch {}
+            if (!people.length) {
+              if (mailPeopleStale()) void refreshMailPeople()
+              const hits = matchMailPeople(query).slice(0, 5)
+              if (hits.length) {
+                return ok(hits.map((h) => `${h.name || h.address}: ${h.address} (from your mail — you wrote ${h.sent}, received ${h.received})`).join('\n'))
+              }
+              return ok(`No contact or mail correspondent matches "${query}".`)
+            }
             return ok(people.map((p) => `${p.name}: ${[...p.phones, ...p.emails].join(', ') || 'no number or email'}`).join('\n'))
           } catch (err) {
             return fail(err.message)
@@ -1635,7 +1669,7 @@ export function lifeServer({ ask, blade }) {
         'Send a message for the user by iMessage, SMS or email. When you are writing it for them, call first ' +
           'WITHOUT `text`: you get how they usually write to this person; then call again with the text in their voice. ' +
           'The user always sees it on screen and must press Approve; nothing is sent otherwise. ' +
-          '`to` is a contact name, number or email address. Email only: several people in `to`, `cc`, `bcc`; ' +
+          '`to` is a contact name, a role ("HR", "finance" — found in their mail), number or email address; never ask the user for an address before trying. Email only: several people in `to`, `cc`, `bcc`; ' +
           '`attachments` (file paths the user named; find_file finds "the latest X in Downloads"); `reply_to` to answer ' +
           'a mail in its thread (an id from inbox, or sender/subject words), `reply_all`; `from` (an address or ' +
           'account word like "work"; mail_accounts lists them); `save_as_draft` to leave it in Mail Drafts unsent.',

@@ -41,9 +41,9 @@ import { homedir, tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA, uaFor } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 
@@ -1542,6 +1542,45 @@ async function withContext(text) {
   }
 }
 
+/**
+ * The conversation survives closing ZEN.
+ *
+ * Every socket used to start a brand-new agent session, so closing the window
+ * mid-task ("mail my HR…") lost the task: the reopened ZEN had never heard of
+ * it. The last session's id is kept in ~/.string/session.json and resumed on
+ * the next connection if it was active within ZEN_RESUME_HOURS (12 by default;
+ * 0 = always start fresh). The agent SDK keeps the transcript itself, so a
+ * resumed session knows everything that was said. A resume that fails is
+ * forgotten, so a bad id can never wedge ZEN in a reconnect loop.
+ */
+const SESSION_FILE = join(process.env.ZEN_STATE_DIR || join(homedir(), '.string'), 'session.json')
+const RESUME_HOURS = Number(process.env.ZEN_RESUME_HOURS ?? 12)
+
+function lastSession() {
+  if (!(RESUME_HOURS > 0)) return null
+  try {
+    const s = JSON.parse(readFileSync(SESSION_FILE, 'utf8'))
+    if (typeof s.id !== 'string' || !s.id) return null
+    if (Date.now() - Number(s.at || 0) > RESUME_HOURS * 3_600_000) return null
+    return s.id
+  } catch {
+    return null
+  }
+}
+
+function saveSession(id) {
+  if (!id) return
+  try {
+    mkdirSync(dirname(SESSION_FILE), { recursive: true })
+    writeFileSync(`${SESSION_FILE}.tmp`, JSON.stringify({ id, at: Date.now() }))
+    renameSync(`${SESSION_FILE}.tmp`, SESSION_FILE)
+  } catch (err) {
+    console.warn('[jarvis] could not save the session:', err?.message)
+  }
+}
+
+const forgetSession = () => rmSync(SESSION_FILE, { force: true })
+
 wss.on('connection', (socket, req) => {
   if ((req.url ?? '').split('?')[0] === '/term') return handleTerminal(socket, req)
   console.log('[jarvis] client connected')
@@ -1718,6 +1757,8 @@ wss.on('connection', (socket, req) => {
   const gate = makeGate({ ask, describe: describeTool })
 
   let currentModel = MODEL
+  const resumeId = lastSession()
+  if (resumeId) console.log(`[jarvis] resuming the conversation ${resumeId.slice(0, 8)}`)
   const session = query({
     prompt: userMessages(),
     options: {
@@ -1771,6 +1812,8 @@ wss.on('connection', (socket, req) => {
       // keeps answers short enough to speak, and cuts cost per turn.
       // Read per session, so a fact saved last time is known from the first word.
       systemPrompt: SYSTEM_PROMPT + memoryPrompt(),
+      // Pick up where the last window left off (see lastSession).
+      ...(resumeId ? { resume: resumeId } : {}),
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),
@@ -1890,6 +1933,8 @@ wss.on('connection', (socket, req) => {
             // empty text is indistinguishable from a turn that simply had
             // nothing to say — the HUD stops spinning and JARVIS stands there
             // silent. Say what happened instead.
+            // Keeps the resume window counting from the last thing said.
+            saveSession(msg.session_id)
             try {
               recordTurn({
                 totalCostUsd: msg.total_cost_usd,
@@ -1941,6 +1986,7 @@ wss.on('connection', (socket, req) => {
 
           case 'system':
             if (msg.subtype === 'init') {
+              saveSession(msg.session_id)
               // Servers report 'pending' until first use — they connect
               // lazily — so only drop the ones that are actually unusable.
               const usable = (msg.mcp_servers ?? [])
@@ -1954,6 +2000,8 @@ wss.on('connection', (socket, req) => {
       }
     } catch (err) {
       console.error('[jarvis] session error:', err)
+      // If this was a resume, the saved id is the likely cause: start fresh next time.
+      if (resumeId) forgetSession()
       send({ type: 'error', message: String(err?.message ?? err) })
       // The stream is finished either way — nothing will ever be read from it
       // again. Leaving the socket open would leave the client believing it has

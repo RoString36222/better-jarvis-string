@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -872,4 +872,172 @@ export async function access() {
   }
 
   return { calendar: calendarS, messages: messagesS, calls: callsS, mail: mailS, contacts: contactsS, notes }
+}
+
+// ------------------------------------------------------- people in your mail
+
+/**
+ * An address book built from the user's own mail: everyone who wrote to them
+ * and everyone they wrote to, with how often and how recently.
+ *
+ * Contacts only knows the people someone bothered to save, and reading it
+ * needs Full Disk Access. "Mail my HR" needs neither: the user has written to
+ * HR dozens of times, and the Sent mailbox says exactly where. Mail is slow to
+ * walk (~9s for 1,500 inbox and 300 sent messages), so the book is built in
+ * the background, kept in memory and on disk, and refreshed every few hours;
+ * a lookup never waits on Mail.
+ *
+ * Two kinds of address are left out on purpose: no-reply robots (nobody means
+ * them), and internationalised lookalike domains (xn--…, "nàmmayatri.in"),
+ * which is what an impostor's address looks like. ZEN must never pick one of
+ * those for "my HR", however often it appears.
+ */
+const PEOPLE_FILE = join(STATE, 'mail_people.json')
+const PEOPLE_TTL = 6 * 3_600_000
+let people = null
+let peopleAt = 0
+let peopleBuild = null
+
+const ROBOT = /(^|[._-])(no-?reply|do-?not-?reply|donotreply|notifications?|mailer-daemon|postmaster|bounces?|alerts?)([._-]|@)/i
+const LOOKALIKE = (address) => /(^|\.|@)xn--/i.test(address) || /[^\x00-\x7f]/.test(address)
+
+const PEOPLE_SCRIPT = `on run argv
+  set nIn to item 1 of argv as integer
+  set nOut to item 2 of argv as integer
+  set us to ASCII character 31
+  set rs to ASCII character 30
+  set out to ""
+  tell application "Mail"
+    set c to count of messages of inbox
+    if c > nIn then set c to nIn
+    if c > 0 then
+      set ss to sender of messages 1 thru c of inbox
+      set ds to date received of messages 1 thru c of inbox
+      repeat with i from 1 to c
+        set out to out & "in" & us & (item i of ss) & us & ((item i of ds) as «class isot» as string) & rs
+      end repeat
+    end if
+    try
+      set sm to sent mailbox
+      set c2 to count of messages of sm
+      if c2 > nOut then set c2 to nOut
+      repeat with i from 1 to c2
+        set m to message i of sm
+        set d to (date sent of m) as «class isot» as string
+        repeat with r in (to recipients of m)
+          set out to out & "out" & us & (name of r) & " <" & (address of r) & ">" & us & d & rs
+        end repeat
+      end repeat
+    end try
+  end tell
+  return out
+end run`
+
+/** "Name <a@b>" or "a@b" -> { name, address } (address lower-cased). */
+function splitAddress(s) {
+  const t = String(s ?? '').trim()
+  const m = /^"?(.*?)"?\s*<([^>]+)>$/.exec(t)
+  const address = (m ? m[2] : t).trim().toLowerCase()
+  const name = clean(m ? m[1] : '', 80).replace(/^["']|["']$/g, '').trim()
+  return { name: name && name.toLowerCase() !== address ? name : '', address }
+}
+
+function loadPeople() {
+  if (people) return people
+  try {
+    const saved = JSON.parse(readFileSync(PEOPLE_FILE, 'utf8'))
+    people = Array.isArray(saved.people) ? saved.people : []
+    peopleAt = Number(saved.at) || 0
+  } catch {
+    people = []
+  }
+  return people
+}
+
+/**
+ * Rebuilds the book from Mail. Resolves to the list, or to the old one when
+ * Mail is closed or says no. One build at a time.
+ */
+export function refreshMailPeople() {
+  if (peopleBuild) return peopleBuild
+  peopleBuild = (async () => {
+    try {
+      if (process.env.ZEN_MAIL === 'off') return loadPeople()
+      const running = await osa('application "Mail" is running', [], 4000).catch(() => 'false')
+      if (running.trim() !== 'true') return loadPeople()
+      const out = await osa(PEOPLE_SCRIPT, ['1500', '300'], 60_000)
+      const book = new Map()
+      for (const row of out.split(ROW)) {
+        const [dir, who, when] = row.split(SEP)
+        if (dir !== 'in' && dir !== 'out') continue
+        const { name, address } = splitAddress(who)
+        if (!address.includes('@') || ROBOT.test(address) || LOOKALIKE(address)) continue
+        const at = Date.parse(when) || 0
+        const p = book.get(address) ?? { name: '', address, sent: 0, received: 0, last: 0 }
+        if (name && (!p.name || dir === 'out')) p.name = name
+        if (dir === 'out') p.sent++
+        else p.received++
+        p.last = Math.max(p.last, at)
+        book.set(address, p)
+      }
+      people = [...book.values()]
+      peopleAt = Date.now()
+      mkdirSync(dirname(PEOPLE_FILE), { recursive: true })
+      writeFileSync(`${PEOPLE_FILE}.tmp`, JSON.stringify({ at: peopleAt, people }))
+      renameSync(`${PEOPLE_FILE}.tmp`, PEOPLE_FILE)
+      console.log(`[life] mail people: ${people.length} addresses`)
+      return people
+    } catch (err) {
+      console.warn('[life] mail people:', err?.message ?? err)
+      return loadPeople()
+    } finally {
+      peopleBuild = null
+    }
+  })()
+  return peopleBuild
+}
+
+/** True when the book is missing or old; callers kick off refreshMailPeople(). */
+export const mailPeopleStale = () => (loadPeople(), !people.length || Date.now() - peopleAt > PEOPLE_TTL)
+
+/**
+ * Words people use for a role, matched against names and the local part of
+ * addresses as whole words ("hr" must not match "chris").
+ */
+const ROLES = {
+  hr: ['hr', 'human resources', 'humanresources', 'people', 'people ops', 'peopleops', 'people team', 'payroll', 'talent', 'hrbp', 'hr team'],
+  payroll: ['payroll', 'salary', 'hr'],
+  finance: ['finance', 'accounts', 'accounting', 'reimbursement', 'reimbursements', 'expenses', 'ap'],
+  it: ['it', 'helpdesk', 'help desk', 'it support', 'itsupport', 'support', 'servicedesk'],
+  admin: ['admin', 'facilities', 'office admin'],
+  travel: ['travel', 'travel desk', 'traveldesk'],
+  recruiting: ['recruiting', 'recruitment', 'talent', 'hiring', 'careers'],
+  legal: ['legal', 'compliance'],
+}
+
+const words = (s) => String(s ?? '').toLowerCase().replace(/[._+-]+/g, ' ').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+const hasPhrase = (hay, phrase) => ` ${hay} `.includes(` ${phrase} `)
+
+/**
+ * Who in the user's mail best fits "HR", "Priya", "my manager's Rahul"…
+ * Ranked by how much the user has written to them (sent counts triple: who
+ * you write to is who you mean), then received, then recency.
+ * @returns {{ name: string, address: string, sent: number, received: number, last: number, score: number }[]}
+ */
+export function matchMailPeople(query) {
+  const q = words(String(query ?? '').replace(/^(my|our|the)\s+/i, ''))
+  if (!q) return []
+  const terms = ROLES[q] ?? [q]
+  const now = Date.now()
+  return loadPeople()
+    .map((p) => {
+      const hay = `${words(p.name)} ${words(p.address.split('@')[0])}`
+      const hit = terms.some((t) => hasPhrase(hay, words(t)))
+      if (!hit) return null
+      const ageDays = (now - (p.last || 0)) / 86_400_000
+      const score = p.sent * 3 + p.received + Math.max(0, 5 - ageDays / 30)
+      return { ...p, score }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score)
 }
