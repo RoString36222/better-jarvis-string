@@ -188,42 +188,87 @@ struct ApprovalCard: View {
     }
 }
 
-/// Spotify, as the bridge sees it: art, title, artist, and the three buttons.
+/// Now playing, laid out like macOS's own Now Playing card: big art on the
+/// left; title, "artist – album", the three large buttons and a progress bar
+/// with elapsed and remaining time on the right.
 struct MusicRow: View {
     let music: NowPlaying
     @ObservedObject var model: Model
+    static let artSize: CGFloat = 84
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             AsyncImage(url: music.art) { img in
                 img.resizable().scaledToFill()
             } placeholder: {
                 ZStack {
                     Theme.sapphire.opacity(0.25)
-                    Image(systemName: "music.note").foregroundStyle(Theme.accent)
+                    Image(systemName: "music.note").font(.system(size: 26)).foregroundStyle(Theme.accent)
                 }
             }
-            .frame(width: 40, height: 40)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(music.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(music.artist).font(.system(size: 11)).foregroundStyle(Theme.subtle).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            HStack(spacing: 2) {
-                control("backward.fill", "previous")
-                control(music.playing ? "pause.fill" : "play.fill", music.playing ? "pause" : "play")
-                control("forward.fill", "next")
+            .frame(width: Self.artSize, height: Self.artSize)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(music.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    Spacer(minLength: 0)
+                    if music.playing {
+                        Image(systemName: "waveform").font(.system(size: 10)).foregroundStyle(Theme.subtle)
+                    }
+                }
+                Text(music.album.isEmpty ? music.artist : "\(music.artist) – \(music.album)")
+                    .font(.system(size: 11)).foregroundStyle(Theme.subtle).lineLimit(1)
+
+                HStack(spacing: 22) {
+                    control("backward.fill", "previous", size: 15)
+                    control(music.playing ? "pause.fill" : "play.fill", music.playing ? "pause" : "play", size: 20)
+                    control("forward.fill", "next", size: 15)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+
+                // Only ticks while playing: paused, it draws once and costs nothing.
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    progress(now: ctx.date)
+                }
             }
         }
-        .padding(8)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+        .padding(10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func control(_ symbol: String, _ op: String) -> some View {
+    @ViewBuilder private func progress(now: Date) -> some View {
+        if let d = music.duration, d > 0, let e = music.elapsed(music.playing ? now : music.at) {
+            VStack(spacing: 3) {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.text.opacity(0.18))
+                        Capsule().fill(Theme.sapphire).frame(width: max(4, g.size.width * min(1, e / d)))
+                    }
+                }
+                .frame(height: 4)
+                HStack {
+                    Text(clock(e))
+                    Spacer()
+                    Text("−" + clock(max(0, d - e)))
+                }
+                .font(.system(size: 9, design: .rounded).monospacedDigit())
+                .foregroundStyle(Theme.subtle)
+            }
+        }
+    }
+
+    private func clock(_ s: Double) -> String {
+        let t = Int(s.rounded(.down))
+        return String(format: "%02d:%02d", t / 60, t % 60)
+    }
+
+    private func control(_ symbol: String, _ op: String, size: CGFloat) -> some View {
         Button { model.music(op) } label: {
-            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(Theme.text)
-                .frame(width: 24, height: 24).contentShape(Rectangle())
+            Image(systemName: symbol).font(.system(size: size)).foregroundStyle(Theme.text)
+                .frame(width: size + 14, height: size + 10).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

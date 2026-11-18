@@ -29,8 +29,21 @@ struct Approval: Identifiable, Equatable {
 struct NowPlaying: Equatable {
     var title: String
     var artist: String
+    var album: String = ""
     var art: URL?
     var playing: Bool
+    /// Seconds. The bridge sends the position every ~2s; between updates the
+    /// card runs its own clock from `at`, so the bar moves smoothly.
+    var duration: Double? = nil
+    var position: Double? = nil
+    var at = Date()
+
+    /// Where the song is now, by the card's own clock.
+    func elapsed(_ now: Date) -> Double? {
+        guard let p = position else { return nil }
+        let t = playing ? p + now.timeIntervalSince(at) : p
+        return min(max(0, t), duration ?? t)
+    }
 }
 
 /// Everything the views draw, fed by `Bridge`. Main-actor only: the socket hops here
@@ -65,7 +78,9 @@ final class Model: ObservableObject {
     }
     func music(_ op: String) {
         // Optimistic, so the button answers the click; the next push corrects it.
-        if var m = music, op == "play" || op == "pause" { m.playing = op == "play"; music = m }
+        if var m = music, op == "play" || op == "pause" {
+            m.position = m.elapsed(Date()); m.at = Date(); m.playing = op == "play"; music = m
+        }
         send?(["type": "music", "op": op])
     }
     func openZEN() { send?(["type": "open"]) }
@@ -81,8 +96,11 @@ final class Model: ObservableObject {
         case "music":
             if let t = m["title"] as? String, !t.isEmpty {
                 let art = (m["art"] as? String).flatMap(URL.init(string:))
-                music = NowPlaying(title: t, artist: m["artist"] as? String ?? "", art: art,
-                                   playing: m["playing"] as? Bool ?? false)
+                music = NowPlaying(title: t, artist: m["artist"] as? String ?? "",
+                                   album: m["album"] as? String ?? "", art: art,
+                                   playing: m["playing"] as? Bool ?? false,
+                                   duration: (m["duration"] as? NSNumber)?.doubleValue,
+                                   position: (m["position"] as? NSNumber)?.doubleValue)
             } else {
                 music = nil
             }

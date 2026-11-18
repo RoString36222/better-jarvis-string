@@ -18,7 +18,7 @@
  *
  * Frames to the notch:
  *   {type:'state', phase, caption, windowOpen}   phase: idle|listening|thinking|speaking|offline
- *   {type:'music', title, artist, art, playing}  every ~2s while playing, and on any change
+ *   {type:'music', title, artist, album, art, playing, duration, position}  every ~2s while playing, and on any change
  *   {type:'notify', text}                        ZEN spoke up on its own (reminders, chief)
  *   {type:'approve', id, text}                   an Allow/Deny card is waiting
  *   {type:'approve-done', id}                    that card was answered (anywhere) or expired
@@ -111,7 +111,17 @@ export function createNotchHub({ showWindow }) {
       const st = await spotifyState().catch(() => null)
       const msg =
         st && st.state && st.state !== 'stopped' && st.title
-          ? { type: 'music', title: st.title, artist: st.artist ?? '', art: st.art ?? null, playing: st.state === 'playing' }
+          ? {
+              type: 'music',
+              title: st.title,
+              artist: st.artist ?? '',
+              album: st.album ?? '',
+              art: st.art ?? null,
+              playing: st.state === 'playing',
+              // Seconds; the notch runs its own clock between updates.
+              duration: Number.isFinite(st.duration) ? st.duration : null,
+              position: Number.isFinite(st.position) ? st.position : null,
+            }
           : { type: 'music', title: null, artist: null, art: null, playing: false }
       playing = msg.playing
       const key = JSON.stringify(msg)
