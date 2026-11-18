@@ -1421,7 +1421,14 @@ const everyone = new Set()
  * Electron, but every page has one (see desktop/main.cjs, '[zen:show]').
  */
 const notch = createNotchHub({
-  showWindow: () => everyone.forEach((send) => send({ type: 'window', op: 'show' })),
+  // A connected window shows itself; with none (ZEN.app quit, not just
+  // hidden) there is nobody to ask, so the app is launched instead.
+  showWindow: () => {
+    if (everyone.size) return everyone.forEach((send) => send({ type: 'window', op: 'show' }))
+    const app = process.env.ZEN_APP || '/Applications/ZEN.app'
+    console.log(`[zen] no ZEN window is running; opening ${app}`)
+    spawn('open', [app], { stdio: 'ignore', detached: true }).on('error', (err) => console.warn('[zen] could not open ZEN:', err.message)).unref()
+  },
 })
 
 /** ZEN speaking up on its own: every open page, and the notch's panel. */
