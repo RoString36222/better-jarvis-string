@@ -23,12 +23,12 @@
  *   {type:'approve', id, text}                   an Allow/Deny card is waiting
  *   {type:'approve-done', id}                    that card was answered (anywhere) or expired
  * Frames from the notch:
- *   {type:'reply', id, ok} · {type:'music', op} · {type:'open'}
+ *   {type:'reply', id, ok} · {type:'music', op, position?} · {type:'open'}
  */
 import { spotifyControl, spotifyState } from './mac.mjs'
 
 const PHASES = new Set(['idle', 'listening', 'thinking', 'speaking', 'offline'])
-const MUSIC_OPS = new Set(['play', 'pause', 'toggle', 'next', 'previous'])
+const MUSIC_OPS = new Set(['play', 'pause', 'toggle', 'next', 'previous', 'seek'])
 
 /**
  * How long a card waits before it is offered to the notch. Most cards are
@@ -171,8 +171,12 @@ export function createNotchHub({ showWindow }) {
         // The first answer wins; a card already answered in the window is gone.
         cards.get(msg.id)?.answer(msg.ok === true)
       } else if (msg?.type === 'music' && MUSIC_OPS.has(msg.op)) {
-        console.log(`[zen] notch music ${msg.op}`)
-        void spotifyControl(msg.op)
+        // Seek carries the new position in seconds (the notch's timeline); a
+        // value that is not a sane number is dropped rather than sent to Spotify.
+        const at = Number(msg.position)
+        if (msg.op === 'seek' && !(Number.isFinite(at) && at >= 0 && at < 24 * 3600)) return
+        console.log(`[zen] notch music ${msg.op}${msg.op === 'seek' ? ` ${at.toFixed(1)}s` : ''}`)
+        void spotifyControl(msg.op, at)
           .catch((err) => console.warn('[zen] notch music failed:', err?.message ?? err))
           // Show the new track as soon as Spotify has it, not on the next tick.
           .finally(() => scheduleMusic(350))

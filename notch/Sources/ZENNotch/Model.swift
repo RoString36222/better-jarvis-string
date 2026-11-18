@@ -83,6 +83,14 @@ final class Model: ObservableObject {
         }
         send?(["type": "music", "op": op])
     }
+
+    /// Jump to `seconds` in the song (the timeline). The card moves at once; the
+    /// bridge's next update confirms where Spotify really is.
+    func seek(to seconds: Double) {
+        guard var m = music else { return }
+        m.position = max(0, min(seconds, m.duration ?? seconds)); m.at = Date(); music = m
+        send?(["type": "music", "op": "seek", "position": m.position ?? 0])
+    }
     func openZEN() { send?(["type": "open"]) }
 
     /// One frame from the bridge. Loose on purpose: an unknown frame from a newer

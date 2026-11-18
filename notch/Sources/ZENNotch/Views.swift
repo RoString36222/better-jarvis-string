@@ -195,6 +195,9 @@ struct MusicRow: View {
     let music: NowPlaying
     @ObservedObject var model: Model
     static let artSize: CGFloat = 84
+    /// While the timeline is being dragged: where the finger is, 0...1. The bar
+    /// and the times follow it; the song only jumps on release, like Music.app.
+    @State private var scrub: Double?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -240,15 +243,35 @@ struct MusicRow: View {
     }
 
     @ViewBuilder private func progress(now: Date) -> some View {
-        if let d = music.duration, d > 0, let e = music.elapsed(music.playing ? now : music.at) {
+        if let d = music.duration, d > 0, let live = music.elapsed(music.playing ? now : music.at) {
+            let e = scrub.map { $0 * d } ?? live
             VStack(spacing: 3) {
                 GeometryReader { g in
+                    let frac = min(1, max(0, e / d))
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Theme.text.opacity(0.18))
-                        Capsule().fill(Theme.sapphire).frame(width: max(4, g.size.width * min(1, e / d)))
+                        Capsule().fill(Theme.text.opacity(0.18)).frame(height: scrub == nil ? 4 : 6)
+                        Capsule().fill(Theme.sapphire).frame(width: max(4, g.size.width * frac), height: scrub == nil ? 4 : 6)
+                        // The knob shows while scrubbing, like the system player.
+                        if scrub != nil {
+                            Circle().fill(Theme.text).frame(width: 11, height: 11)
+                                .offset(x: g.size.width * frac - 5.5)
+                        }
                     }
+                    .frame(maxHeight: .infinity)
+                    // A tall hit area over a thin bar: easy to grab, click or drag.
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { v in scrub = min(1, max(0, v.location.x / max(1, g.size.width))) }
+                            .onEnded { v in
+                                let f = min(1, max(0, v.location.x / max(1, g.size.width)))
+                                scrub = nil
+                                model.seek(to: f * d)
+                            }
+                    )
                 }
-                .frame(height: 4)
+                .frame(height: 14)
+                .animation(.easeOut(duration: 0.12), value: scrub == nil)
                 HStack {
                     Text(clock(e))
                     Spacer()
