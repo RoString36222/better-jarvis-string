@@ -136,6 +136,13 @@ export function connectedLabels(): string[] {
 }
 
 /** ZEN asking permission before it acts. Bridge only. */
-export function watchApprove(fn: (text: string, fresh: boolean) => Promise<boolean>): void {
+export function watchApprove(
+  fn: (text: string, fresh: boolean, withdrawn: AbortSignal) => Promise<boolean>,
+): void {
   if (usingBridge) bridge.watchApprove(fn)
+}
+
+/** ZEN Notch's arc follows this; nothing to report on the direct path. */
+export function reportPhase(p: bridge.NotchPhase): void {
+  if (usingBridge) bridge.reportPhase(p)
 }

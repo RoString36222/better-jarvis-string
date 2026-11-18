@@ -115,7 +115,17 @@ const spotifyTrack = (query) => searchTrack(query)
  * What Spotify is doing, for the on-screen player. Null when Spotify is not
  * running (asked first, so polling never launches it).
  */
+/**
+ * ZEN_MUSIC_DRY=1: a fixed track and no-op buttons, for tests of the notch and
+ * the player. A test must never pause or skip whatever the user is listening to.
+ */
+const MUSIC_DRY = process.env.ZEN_MUSIC_DRY === '1'
+let dryPlaying = true
+
 export async function spotifyState() {
+  if (MUSIC_DRY) {
+    return { state: dryPlaying ? 'playing' : 'paused', title: 'Test Track', artist: 'ZEN Test', album: '', art: null, duration: 200, position: 42 }
+  }
   if (!resolveApp('Spotify')) return null
   const running = await run('application "Spotify" is running').catch(() => 'false')
   if (running !== 'true') return null
@@ -146,6 +156,7 @@ export async function spotifyState() {
  */
 let duckedFrom = null
 export async function spotifyDuck(on) {
+  if (MUSIC_DRY) return
   try {
     if (!resolveApp('Spotify')) return
     if ((await run('application "Spotify" is running').catch(() => 'false')) !== 'true') return
@@ -167,6 +178,11 @@ export async function spotifyDuck(on) {
 
 /** Player buttons: play/pause/next/previous, or seek to `position` seconds. */
 export async function spotifyControl(action, position) {
+  if (MUSIC_DRY) {
+    console.log(`[zen] spotify (dry run) ${action}`)
+    if (action === 'play' || action === 'pause' || action === 'toggle') dryPlaying = action === 'toggle' ? !dryPlaying : action === 'play'
+    return ''
+  }
   if (!resolveApp('Spotify')) throw new Error('Spotify is not installed')
   if (action === 'seek') {
     const p = Math.max(0, Number(position) || 0)

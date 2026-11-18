@@ -66,6 +66,14 @@ function run(name, command, args, colour, env) {
   child.stdout.on('data', (d) => process.stdout.write(label(d) + '\n'))
   child.stderr.on('data', (d) => process.stderr.write(label(d) + '\n'))
   child.on('exit', (code) => {
+    // Exit 75 is the bridge asking to be reloaded (↻ RESTART in ZEN): start a
+    // fresh one in its place and leave the face running.
+    if (code === 75 && !stopping) {
+      console.log(`\x1b[${colour}m${name}\x1b[0m restarting with the latest code…`)
+      children.splice(children.indexOf(child), 1)
+      run(name, command, args, colour, env)
+      return
+    }
     // If either half dies the other is useless, so take the whole thing down
     // rather than leave a half-running app that looks alive but cannot answer.
     console.log(`\x1b[${colour}m${name}\x1b[0m exited (${code}); stopping the rest.`)
@@ -105,7 +113,7 @@ process.on('SIGTERM', () => shutdown(0))
  * without widening what the bridge trusts by default.
  */
 const port = process.env.PORT
-const bridgeEnv = writes ? { JARVIS_ALLOW_WRITES: '1' } : {}
+const bridgeEnv = { ZEN_SUPERVISED: '1', ...(writes ? { JARVIS_ALLOW_WRITES: '1' } : {}) }
 if (port) {
   bridgeEnv.JARVIS_ALLOWED_ORIGINS = `http://localhost:${port},http://127.0.0.1:${port}`
   console.log(`  serving the face on port ${port}; the bridge will accept it.\n`)

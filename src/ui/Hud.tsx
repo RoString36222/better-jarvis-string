@@ -13,6 +13,7 @@ import { useSettings, themePalette } from '../lib/settings'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
+import { useWindowOpen } from '../lib/windowState'
 
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -183,6 +184,10 @@ export function Hud() {
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
   const ui = useStore((s) => s.ui)
+  // Hidden (✕, ⌥Space, Esc), the purely decorative layers are unmounted so
+  // their frame loops stop. Everything with state worth keeping — blades,
+  // the terminal, the Allow card — stays mounted.
+  const shown = useWindowOpen()
 
   // accentFor folds JARVIS's overrides in over the phase colour, so one
   // variable on the root carries a theme change into every .hud-* rule without
@@ -225,8 +230,8 @@ export function Hud() {
       {/* First in the tree on purpose. Everything after it is positioned with
           `z-index: auto`, so paint order is document order and the sweep stays
           behind the transcript and the panels without a z-index war. */}
-      <BladeSweep />
-      <ArcReactor />
+      {shown && <BladeSweep />}
+      {shown && <ArcReactor />}
       <Toolbar />
       <AskBox />
       <NowPlaying />
@@ -384,17 +389,17 @@ export function Hud() {
       {/* Last, so a flash or a tear reads as being on the glass rather than
           underneath the chrome. It is pointer-events: none and unmounts the
           instant it finishes. */}
-      <Effects />
+      {shown && <Effects />}
 
       {/* Above even the effects: the reticle shows where a press will land, and
           a press that lands under a flourish is a press you cannot aim. */}
-      <Pointer />
+      {shown && <Pointer />}
       {(gestures || looking) && (
         <div className="hands-live">
           {looking ? `LOOKING — ${looking.toUpperCase()}` : 'CAMERA ON · G TO STOP'}
         </div>
       )}
-      <GestureGuide live={gestures} />
+      {shown && <GestureGuide live={gestures} />}
     </div>
   )
 }

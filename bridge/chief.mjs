@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { completeJson } from './llm.mjs'
 import { addReminder } from './mac.mjs'
-import { NeedsAccess, access, calendar, contactName, findContact, mail, mailAccounts, mailHeaders, mailMessage, mailPeopleStale, matchMailPeople, messages, missedCalls, phoneKey, refreshMailPeople, sentTo } from './life.mjs'
+import { NeedsAccess, access, calendar, contactName, findContact, mail, mailAccounts, mailHeaders, mailMessage, allMailPeople, mailPeopleStale, matchMailPeople, messages, missedCalls, phoneKey, refreshMailPeople, sentTo } from './life.mjs'
 import { CRED_PATH, redact } from './gate.mjs'
 import { clean, fence, injectionSigns, safeSummary } from './sanitize.mjs'
 import { checkIn, checkInContinue } from './checkin.mjs'
@@ -983,10 +983,82 @@ function fromMail(raw) {
   return { error: `Which ${raw} — ${list}?` }
 }
 
+/**
+ * "Priya, my HR" -> the right Priya's address.
+ *
+ * Contacts used to win outright, so an old contact called Priya beat the
+ * Priya in HR the user mails every week — and the card offered the wrong address
+ * for a leave letter. Now every candidate is weighed together: people the
+ * user actually corresponds with (sent counts triple) on the domain the mail
+ * goes out from count most, a role said alongside the name ("HR", "finance")
+ * must match, and a contact nobody has written to in years counts least.
+ * One clear winner is used — the card still shows the address — and anything
+ * close comes back as "which one?", never a guess.
+ */
+const ROLE_WORDS = /\b(?:my|our|the|from|in|at)?\s*\(?\b(hr|human resources|payroll|finance|accounts|it|helpdesk|admin|travel|recruiting|legal)\b\)?/i
+function emailByName(raw, domain) {
+  const roleMatch = raw.match(ROLE_WORDS)
+  const role = roleMatch ? roleMatch[1].toLowerCase() : null
+  const name = raw.replace(ROLE_WORDS, ' ').replace(/[,()]+/g, ' ').replace(/\b(my|our|the|from)\b/gi, ' ').replace(/\s+/g, ' ').trim()
+  if (mailPeopleStale()) void refreshMailPeople()
+  const dom = (domain || workDomain() || '').toLowerCase()
+  const nameKey = norm(name)
+  const byAddress = new Map()
+  const add = (c) => {
+    const key = c.address.toLowerCase()
+    const prev = byAddress.get(key)
+    byAddress.set(key, prev ? { ...prev, ...c, score: prev.score + c.score, from: `${prev.from}+${c.from}` } : c)
+  }
+  // From mail: by name, and (when a role was said) by role.
+  const roleHits = role ? new Set(matchMailPeople(role).map((h) => h.address.toLowerCase())) : null
+  for (const h of name ? matchMailPeople(name) : []) {
+    let score = 2 + h.score
+    if (dom && h.address.toLowerCase().endsWith(`@${dom}`)) score += 10
+    if (role && roleHits.has(h.address.toLowerCase())) score += 8
+    add({ name: h.name || h.address, address: h.address, score, from: 'mail' })
+  }
+  if (role && !name) for (const h of matchMailPeople(role)) add({ name: h.name || h.address, address: h.address, score: 2 + h.score, from: 'mail' })
+  // From Contacts, when readable: every email of every matching person.
+  if (name) {
+    let people = []
+    try {
+      people = findContact(name)
+    } catch {}
+    for (const p of people) {
+      for (const address of p.emails) {
+        let score = 1 + (norm(p.name) === nameKey ? 1 : 0)
+        if (dom && address.toLowerCase().endsWith(`@${dom}`)) score += 6
+        add({ name: p.name, address, score, from: 'contacts' })
+      }
+    }
+  }
+  let ranked = [...byAddress.values()].sort((a, b) => b.score - a.score)
+  // A role was said: candidates that cannot be that role are not candidates.
+  if (role && ranked.some((c) => c.from.includes('mail') && (roleHits.has(c.address.toLowerCase()) || (dom && c.address.toLowerCase().endsWith(`@${dom}`))))) {
+    ranked = ranked.filter((c) => roleHits.has(c.address.toLowerCase()) || (dom && c.address.toLowerCase().endsWith(`@${dom}`)))
+  }
+  if (!ranked.length) return { error: `I couldn't find ${raw} in your mail or contacts. What is their address?` }
+  const [top, next] = ranked
+  if (!next || top.score >= next.score * 2) return { name: top.name, address: top.address }
+  const list = ranked.slice(0, 3).map((c) => `${c.name} (${c.address})`).join(', or ')
+  return { error: `Which ${name || raw} — ${list}?` }
+}
+
+/** The domain the user mostly writes from-to: where "my HR" lives. */
+function workDomain() {
+  const counts = new Map()
+  for (const h of allMailPeople()) {
+    const d = h.address.split('@')[1]
+    if (d && h.sent) counts.set(d, (counts.get(d) ?? 0) + h.sent)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+}
+
 /** Turns "Rahul" / a number / an address into { name, address } for the channel, or an error to say. */
-function recipient(to, channel) {
+function recipient(to, channel, ctx = {}) {
   const raw = String(to ?? '').trim()
   if (!raw) return { error: 'Who should it go to?' }
+  if (channel === 'email' && !raw.includes('@')) return emailByName(raw, ctx.domain)
   if (raw.includes('@') || isPhone(raw)) {
     if (channel === 'email' && !raw.includes('@')) return { error: 'An email needs an email address.' }
     if (channel === 'sms' && !isPhone(raw)) return { error: 'An SMS needs a phone number.' }
@@ -1220,13 +1292,22 @@ const splitPeople = (v) =>
     .flatMap((x) => String(x ?? '').split(/[,;]/))
     .map((x) => x.trim())
     .filter(Boolean)
+    // "Priya, my HR" is one person described, not Priya plus the HR inbox:
+    // a bare role straight after a name stays with that name.
+    .reduce((out, part) => {
+      const prev = out[out.length - 1]
+      if (prev && !prev.includes('@') && /^(?:(?:my|our|the|from|in)\s+)?(?:hr|human resources|payroll|finance|accounts|it|helpdesk|admin|travel|recruiting|legal)(?:\s+team)?$/i.test(part)) {
+        out[out.length - 1] = `${prev} (${part})`
+      } else out.push(part)
+      return out
+    }, [])
 
 /** Every name resolved like `to` always was; any that cannot be are all reported together. */
-function emailRecipients(v) {
+function emailRecipients(v, domain) {
   const list = []
   const problems = []
   for (const who of splitPeople(v)) {
-    const r = recipient(who, 'email')
+    const r = recipient(who, 'email', { domain })
     if (r.error) problems.push(r.error)
     else if (!list.some((x) => x.address.toLowerCase() === r.address.toLowerCase())) list.push(r)
   }
@@ -1316,9 +1397,13 @@ const quoteHistory = (m) =>
 async function buildEmail({ to, cc, bcc, subject, body, attachments, reply_to, reply_all, from, save_as_draft }) {
   const files = emailAttachments(attachments ?? [])
   if (files.error) return files
+  // The sender first: its domain is what tells the work Priya from an old one.
+  const sender = await emailSender(from)
+  if (sender.error) return sender
+  const domain = sender.from?.address?.split('@')[1] ?? null
   const lists = {}
   for (const [k, v] of Object.entries({ to, cc, bcc })) {
-    const r = emailRecipients(v)
+    const r = emailRecipients(v, domain)
     if (r.error) return r
     lists[k] = r.list
   }
@@ -1329,8 +1414,6 @@ async function buildEmail({ to, cc, bcc, subject, body, attachments, reply_to, r
     reply = { id: t.msg.id, all: reply_all === true, msg: t.msg, history: quoteHistory(t.msg) }
   } else if (reply_all) return { error: 'Reply all needs the mail to reply to (reply_to).' }
   if (!reply && !lists.to.length) return { error: 'Who should the email go to?' }
-  const sender = await emailSender(from)
-  if (sender.error) return sender
   return {
     email: {
       to: lists.to,

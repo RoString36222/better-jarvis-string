@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BRIDGE_HTTP_URL } from '../config'
 import { useSettings } from '../lib/settings'
+import { isWindowOpen, useWindowOpen } from '../lib/windowState'
 
 /**
  * The music player: what Spotify is playing, with seek and transport, drawn
@@ -41,6 +42,7 @@ const control = (action: string, position?: number) =>
 export function NowPlaying() {
   const [media, setMedia] = useState<Media | null>(null)
   const [pos, setPos] = useState(0)
+  const onScreen = useWindowOpen()
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [dragging, setDragging] = useState<number | null>(null)
   const showPicks = useSettings((s) => s.settings.show.picks)
@@ -68,7 +70,10 @@ export function NowPlaying() {
     let alive = true
     let timer = 0
     const poll = async () => {
-      if (document.visibilityState === 'visible') {
+      // isWindowOpen, not visibilityState: the desktop app's hidden window
+      // still reports 'visible' (see windowState.ts), and ZEN Notch shows
+      // what is playing meanwhile.
+      if (isWindowOpen()) {
         try {
           const r = await fetch(`${BRIDGE_HTTP_URL}/media`, { cache: 'no-store' })
           const m = (r.ok ? await r.json() : null) as Media | null
@@ -90,8 +95,9 @@ export function NowPlaying() {
     }
   }, [])
 
-  // Smooth position between polls.
+  // Smooth position between polls — only while the window is on screen.
   useEffect(() => {
+    if (!onScreen) return
     let raf = 0
     const tick = () => {
       raf = requestAnimationFrame(tick)
@@ -100,7 +106,7 @@ export function NowPlaying() {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [onScreen])
 
   const key = media?.title ? `${media.title}|${media.artist}` : null
   const show = Boolean(media && media.state !== 'stopped' && key && key !== dismissed)

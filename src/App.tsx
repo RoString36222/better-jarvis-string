@@ -3,7 +3,8 @@ import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
-import { useStore } from './store'
+import { useStore, type Phase } from './store'
+import { isWindowOpen, onWindowChange, useWindowOpen } from './lib/windowState'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { instantAnswer } from './lib/instant'
 import { askFast, recordExchange, forAgent, type Heard } from './lib/fastlane'
@@ -28,6 +29,7 @@ import {
   watchCapture,
   watchUi,
   watchConnection,
+  reportPhase,
   connectedLabels,
   usingBridge,
   type Msg,
@@ -35,6 +37,23 @@ import {
 import { startAnalyser, micLevel } from './lib/audio'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
+
+/**
+ * ZEN Notch shows five states, not eight: the arc only has to say whether ZEN
+ * is resting, hearing, working or talking. 'offline' here means not powered on
+ * yet (waiting for the click that unlocks audio) — dim, like a bridge that is
+ * down, because in both cases ZEN will not answer "Hey Zen".
+ */
+const NOTCH_PHASE: Record<Phase, 'idle' | 'listening' | 'thinking' | 'speaking' | 'offline'> = {
+  offline: 'offline',
+  boot: 'idle',
+  dormant: 'idle',
+  waking: 'listening',
+  listening: 'listening',
+  thinking: 'thinking',
+  tooling: 'thinking',
+  speaking: 'speaking',
+}
 
 /**
  * The conversation.
@@ -82,6 +101,7 @@ const LEADING_NAME = new RegExp(`^(?:hey|hi|ok|okay|yo)?\\s*${NAME}\\b[\\s,.:!?-
 export default function App() {
   const store = useStore
   const phase = useStore((s) => s.phase)
+  const windowOpen = useWindowOpen()
   const history = useRef<Msg[]>([])
   const speaker = useRef<ReturnType<typeof createSpeaker> | null>(null)
   const voice = useRef<Voice | null>(null)
@@ -161,6 +181,60 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
+
+  /**
+   * Tell the bridge what ZEN is doing, for ZEN Notch's arc. Captions change on
+   * every streamed token, so reports are coalesced to one per 250ms; a phase or
+   * window change goes out at once, since that is what the arc animates on.
+   */
+  useEffect(() => {
+    let sent = ''
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const report = () => {
+      timer = null
+      const st = store.getState()
+      const p = {
+        phase: NOTCH_PHASE[st.phase],
+        caption: st.caption.slice(0, 120),
+        windowOpen: isWindowOpen(),
+      }
+      const key = JSON.stringify(p)
+      if (key === sent) return
+      sent = key
+      reportPhase(p)
+    }
+    let lastPhase = store.getState().phase
+    const soon = () => {
+      const ph = store.getState().phase
+      if (ph !== lastPhase) {
+        lastPhase = ph
+        if (timer) clearTimeout(timer)
+        return report()
+      }
+      if (!timer) timer = setTimeout(report, 250)
+    }
+    report()
+    const offStore = store.subscribe(soon)
+    const offWindow = onWindowChange(report)
+    return () => {
+      offStore()
+      offWindow()
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
+  /**
+   * Hidden, the camera has nobody to show anything to: hand tracking stops
+   * (and with it the camera light). It is not restarted on show — turning a
+   * camera on is always the user's call (G), never the interface's.
+   */
+  useEffect(() => {
+    if (windowOpen) return
+    if (store.getState().gestures) {
+      hands.disableHands()
+      store.getState().setGestures(false)
+    }
+  }, [windowOpen])
 
   /**
    * After an answer: keep listening for a follow-up — unless push-to-talk is
@@ -547,19 +621,23 @@ export default function App() {
     // explicit "Allow next 2 min" window — and never for a `fresh` card
     // (messages leaving the Mac), which is always shown and always asked.
     watchApprove(
-      (text, fresh) =>
+      (text, fresh, withdrawn) =>
         new Promise<boolean>((resolve) => {
           const st = store.getState()
           if (!fresh && Date.now() < st.allowUntil) return resolve(true)
           st.approval?.resolve(false)
           sfx.play('tool')
-          st.setApproval({
+          const card = {
             text,
-            resolve: (ok) => {
-              store.getState().setApproval(null)
+            resolve: (ok: boolean) => {
+              if (store.getState().approval === card) store.getState().setApproval(null)
               resolve(ok)
             },
-          })
+          }
+          st.setApproval(card)
+          // Answered in ZEN Notch (or expired): take this copy off the screen.
+          // bridge.ts drops the answer this produces; the notch's already counted.
+          withdrawn.addEventListener('abort', () => card.resolve(false), { once: true })
         }),
     )
     // Proactive alerts: spoken only while nothing else is going on, so an
@@ -821,15 +899,23 @@ export default function App() {
 
   // -- level pump + keys ----------------------------------------------------
 
+  /**
+   * The mic level drives only the visuals (the orb, the meter): the voice loop
+   * measures its own. So it pumps only while the window is open — hidden, a
+   * frame loop here would keep the renderer busy sixty times a second for
+   * nobody, since backgroundThrottling is off in the desktop app.
+   */
   useEffect(() => {
+    if (!windowOpen) {
+      store.getState().setLevel(0)
+      return
+    }
     let raf = 0
-
     const pump = () => {
       const st = store.getState()
-      // While speaking, follow JARVIS's own output rather than the mic, so the
-      // orb lip-syncs instead of reacting to room noise.
-      // Push-to-talk at rest: the mic means nothing until Space, so the orb
-      // and meter stay still instead of looking like they are listening.
+      // While speaking, follow ZEN's own output rather than the mic, so the
+      // orb lip-syncs instead of reacting to room noise. Push-to-talk at rest:
+      // the mic means nothing until Space, so the orb and meter stay still.
       const atRest = st.phase === 'dormant' && !currentSettings().wakeWord
       const lvl =
         st.phase === 'speaking' && speaker.current
@@ -841,7 +927,11 @@ export default function App() {
       raf = requestAnimationFrame(pump)
     }
     pump()
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowOpen])
 
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -952,7 +1042,6 @@ export default function App() {
     window.addEventListener('keydown', onKey)
 
     return () => {
-      cancelAnimationFrame(raf)
       window.removeEventListener('keydown', onKey)
       clearIdle()
       if (voicePoll.current) clearInterval(voicePoll.current)
@@ -966,7 +1055,10 @@ export default function App() {
 
   return (
     <>
-      <Scene />
+      {/* Hidden, the scene is unmounted, not paused: unmounting the R3F
+          Canvas disposes the renderer and loses its WebGL context, which is
+          what actually lets the GPU process go quiet. It is rebuilt on show. */}
+      {windowOpen && <Scene />}
       <Hud />
       <Diagnostics />
       <Ignition onStart={() => void powerOn()} />

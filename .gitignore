@@ -42,3 +42,6 @@ whisper-server-*
 # Python bytecode
 __pycache__/
 *.pyc
+
+# ZEN Notch build output (notch/scripts/install.sh)
+notch/.build/

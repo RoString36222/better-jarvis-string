@@ -2623,3 +2623,16 @@ kbd {
 .st-seg { display: flex; gap: 4px; margin-bottom: 4px }
 .st-seg-btn { flex: 1; padding: 8px; font: inherit; font-size: 11px; color: inherit; background: rgba(2, 6, 18, 0.5); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); cursor: pointer }
 .st-seg-on { color: #fff; border-color: var(--accent2, var(--accent)); background: color-mix(in srgb, var(--accent) 25%, rgba(2, 6, 18, 0.6)) }
+
+/*
+ * ZEN hidden (see src/lib/windowState.ts): freeze every keyframe animation.
+ * The desktop window keeps running while hidden (backgroundThrottling off, so
+ * "Hey Zen" is still heard), and an infinite CSS animation would keep the
+ * compositor ticking for a window nobody can see. Paused, not removed, so
+ * everything resumes exactly where it was on show.
+ */
+html.zen-hidden *,
+html.zen-hidden *::before,
+html.zen-hidden *::after {
+  animation-play-state: paused !important;
+}

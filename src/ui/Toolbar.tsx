@@ -2,6 +2,35 @@ import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore, type Blade } from '../store'
 import { useSettings } from '../lib/settings'
+import { BRIDGE_HTTP_URL } from '../config'
+
+/**
+ * ↻ RESTART: reload ZEN's brain (the bridge) with the code on disk, then the
+ * page, so an update takes effect without the terminal. The conversation
+ * survives (the bridge resumes its session), and so does the transcript.
+ */
+async function restartZen(set: (s: string) => void) {
+  set('RESTARTING…')
+  try {
+    const r = await fetch(`${BRIDGE_HTTP_URL}/restart`, { method: 'POST' })
+    if (!r.ok) {
+      const why = ((await r.json().catch(() => ({}))) as { error?: string }).error
+      set(why ? 'RUN start-kimi.sh' : 'RESTART FAILED')
+      setTimeout(() => set(''), 4000)
+      return
+    }
+  } catch {
+    // Already down or mid-restart: fall through and wait for it to come back.
+  }
+  await new Promise((r) => setTimeout(r, 800))
+  for (let i = 0; i < 60; i++) {
+    const up = await fetch(`${BRIDGE_HTTP_URL}/health`).then((r) => r.ok).catch(() => false)
+    if (up) return window.location.reload()
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  set('BRIDGE DID NOT COME BACK')
+  setTimeout(() => set(''), 5000)
+}
 
 /**
  * The strip of controls along the top right: HISTORY, TIDY, CLEAR VIEW, CAMERA.
@@ -20,6 +49,7 @@ export function Toolbar() {
   const terminalOpen = useStore((s) => s.terminalOpen)
   const setTerminalOpen = useStore((s) => s.setTerminalOpen)
   const [open, setOpen] = useState(false)
+  const [restarting, setRestarting] = useState('')
 
   const tiled = layout === 'wall' || (layout === 'auto' && blades.length >= 3)
   const cameraOpen = blades.some((b) => b.kind === 'camera')
@@ -100,6 +130,14 @@ export function Toolbar() {
         title="Weather, your day, and anything firing"
       >
         BRIEF
+      </button>
+      <button
+        className="tb-btn"
+        disabled={!!restarting}
+        onClick={() => void restartZen(setRestarting)}
+        title="Restart ZEN with the latest code (your conversation is kept)"
+      >
+        {restarting || '↻ RESTART'}
       </button>
       <button className="tb-btn" onClick={() => useSettings.getState().setOpen(true)} title="Settings" aria-label="Settings">
         ⚙

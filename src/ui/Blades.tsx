@@ -5,6 +5,7 @@ import { BRIDGE_HTTP_URL } from '../config'
 import { sanitisePanelHtml } from './sanitise'
 import { frameSpan, peaceScroll, pinchCount } from '../lib/hands'
 import * as camera from '../lib/camera'
+import { useWindowOpen } from '../lib/windowState'
 
 /**
  * The blades.
@@ -122,6 +123,10 @@ function embedUrl(raw: string): string | null {
  * model are not, because a label held up to the lens has to arrive the right
  * way round.
  */
+function CameraWhenShown() {
+  return useWindowOpen() ? <CameraView /> : <p className="bl-note">Camera paused while ZEN is hidden.</p>
+}
+
 const CameraView = memo(function CameraView() {
   const el = useRef<HTMLVideoElement>(null)
   const [failed, failed_] = useState<string | null>(null)
@@ -224,7 +229,8 @@ function ChartView({ chart }: { chart: BladeChart }) {
 }
 
 const Body = memo(function Body({ blade }: { blade: Blade }) {
-  if (blade.kind === 'camera') return <CameraView />
+  // Hidden, the camera blade lets the camera go (light off); it reopens on show.
+  if (blade.kind === 'camera') return <CameraWhenShown />
 
   if (blade.kind === 'chart' && blade.chart) return <ChartView chart={blade.chart} />
 
@@ -347,6 +353,7 @@ function Card({
   onExpand: () => void
   onClose: () => void
 }) {
+  const shown = useWindowOpen()
   /** Size the user has dragged this blade to, overriding the class preset. */
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   /** Where the user has dragged it, relative to its slot. */
@@ -474,7 +481,8 @@ function Card({
    * the tracker publishes the pose, not the consequence.
    */
   useEffect(() => {
-    if (!focused) return
+    // Hidden, there are no hands to track (the camera is let go) — no loop.
+    if (!focused || !shown) return
     let raf = 0
     let last: number | null = null
     const tick = () => {
@@ -495,7 +503,7 @@ function Card({
     }
     tick()
     return () => cancelAnimationFrame(raf)
-  }, [focused])
+  }, [focused, shown])
 
   /**
    * Frame the blade with both hands to resize it.
@@ -516,7 +524,7 @@ function Card({
    * size is the entire point of the state.
    */
   useEffect(() => {
-    if (!focused || expanded) return
+    if (!focused || expanded || !shown) return
     let raf = 0
     let from: { span: number; w: number; h: number } | null = null
     const tick = () => {
@@ -543,7 +551,7 @@ function Card({
     }
     tick()
     return () => cancelAnimationFrame(raf)
-  }, [focused, expanded])
+  }, [focused, expanded, shown])
 
   const onGrip = (e: React.PointerEvent) => {
     const box = shell.current?.getBoundingClientRect()

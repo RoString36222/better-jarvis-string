@@ -1,6 +1,7 @@
 import type { AskHandlers } from './anthropic'
 import type { Blade, Panel } from '../store'
 import { BRIDGE_WS_URL } from '../config'
+import { requestShow } from './windowState'
 
 /**
  * Client for the local bridge (see bridge/server.mjs).
@@ -94,9 +95,25 @@ export function watchBlades(fn: (blade: Blade) => void) {
 /** An action ZEN wants to take on the user's behalf; resolves true to allow it. */
 // `fresh`: this card must be seen and answered every time, even inside an
 // "Allow next 2 min" window (an email with attachments, say).
-let onApprove: ((text: string, fresh: boolean) => Promise<boolean>) | null = null
-export function watchApprove(fn: (text: string, fresh: boolean) => Promise<boolean>) {
+// `withdrawn`: aborts when the card was answered elsewhere (ZEN Notch) or
+// expired, so the window's copy must go away without answering.
+type ApproveHandler = (text: string, fresh: boolean, withdrawn: AbortSignal) => Promise<boolean>
+let onApprove: ApproveHandler | null = null
+export function watchApprove(fn: ApproveHandler) {
   onApprove = fn
+}
+/** Cards on screen by bridge id, so an 'approve-done' can take one back. */
+const openCards = new Map<string, AbortController>()
+
+/**
+ * What this page is doing, for ZEN Notch's arc. Remembered so a reconnect
+ * re-reports it: the bridge forgets a page the moment its socket drops.
+ */
+export type NotchPhase = { phase: 'idle' | 'listening' | 'thinking' | 'speaking' | 'offline'; caption: string; windowOpen: boolean }
+let lastPhase: NotchPhase | null = null
+export function reportPhase(p: NotchPhase) {
+  lastPhase = p
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'phase', ...p }))
 }
 
 /** Something STRING noticed on its own (proactive mode), to be said aloud. */
@@ -224,11 +241,23 @@ function dispatch(ws: WebSocket) {
       // ZEN asking before it acts (typing, clicking). Always answered: the
       // bridge holds the tool call open until it hears back.
       const id = msg.id
+      const withdrawn = new AbortController()
+      openCards.set(id, withdrawn)
       const answer = (ok: boolean) => {
+        openCards.delete(id)
+        // A card answered in the notch was already settled: saying so again
+        // from here would be a second, contradicting answer.
+        if (withdrawn.signal.aborted) return
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'reply', id, ok }))
       }
       if (!onApprove) answer(false)
-      else onApprove(String(msg.text ?? ''), msg.fresh === true).then(answer).catch(() => answer(false))
+      else onApprove(String(msg.text ?? ''), msg.fresh === true, withdrawn.signal).then(answer).catch(() => answer(false))
+    } else if (msg.type === 'approve-done' && msg.id) {
+      openCards.get(msg.id)?.abort()
+      openCards.delete(msg.id)
+    } else if (msg.type === 'window' && msg.op === 'show') {
+      // "Open ZEN" pressed in the notch.
+      requestShow()
     } else if (msg.type === 'ui' && msg.op) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.
@@ -271,6 +300,7 @@ function connect(): Promise<WebSocket> {
       socket = ws
       attempt = 0
       dispatch(ws)
+      if (lastPhase) ws.send(JSON.stringify({ type: 'phase', ...lastPhase }))
       settle(null)
       onConnection?.(everConnected ? 'reconnected' : 'open')
       everConnected = true

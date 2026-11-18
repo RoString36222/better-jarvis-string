@@ -50,6 +50,31 @@ function hideWin() {
   } else win.hide()
 }
 
+/**
+ * Tell the page whether it is on screen. With backgroundThrottling off the
+ * page's own Page Visibility API always says "visible", so without this a
+ * hidden ZEN kept its whole 3D scene rendering on the GPU for nobody. The page
+ * (src/lib/windowState.ts) unmounts the scene and stops its loops on false.
+ */
+function tellPage(open) {
+  if (!win || win.isDestroyed()) return
+  win.webContents
+    .executeJavaScript(`window.dispatchEvent(new CustomEvent('zen:window', { detail: { open: ${open ? 'true' : 'false'} } })); true`)
+    .catch(() => {})
+}
+const onScreen = () => Boolean(win && win.isVisible() && !win.isMinimized())
+
+/** Brings ZEN forward from anywhere — including ZEN Notch's "Open ZEN". */
+function showWin() {
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  // Clicked from the notch, another app is frontmost; a plain focus() would
+  // only bounce the Dock icon.
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  win.focus()
+}
+
 /** The window, created once and kept: hiding it keeps ⌥Space working. */
 let opening = null
 function openWindow() {
@@ -76,6 +101,10 @@ function openWindow() {
       const n = title.match(/^\((\d+)\)/)?.[1] ?? ''
       if (process.platform === 'darwin') app.dock.setBadge(n)
     })
+    for (const ev of ['show', 'restore']) win.on(ev, () => tellPage(true))
+    for (const ev of ['hide', 'minimize']) win.on(ev, () => tellPage(false))
+    // A reload starts the page believing it is open; correct it if it is not.
+    win.webContents.on('did-finish-load', () => tellPage(onScreen()))
     win.on('focus', () => {
       if (process.platform === 'darwin') app.dock.setBadge('')
     })
@@ -103,6 +132,8 @@ function openWindow() {
         win.show()
         win.focus()
       }
+      // ZEN Notch's "Open ZEN": the bridge relays it to the page, the page here.
+      if (text === '[zen:show]') showWin()
     })
     await win.loadURL(URL)
     // Asked after the window is up: the macOS prompt waits for the user.

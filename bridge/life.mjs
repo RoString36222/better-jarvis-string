@@ -1041,3 +1041,6 @@ export function matchMailPeople(query) {
     .filter(Boolean)
     .sort((a, b) => b.score - a.score)
 }
+
+/** The whole book (cached; may be empty until the first build finishes). */
+export const allMailPeople = () => loadPeople()

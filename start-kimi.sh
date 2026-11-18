@@ -66,4 +66,13 @@ if [ -z "${LOCAL_TTS_URL:-}" ] && [ -x .venv-tts/bin/python ]; then
 fi
 trap 'kill ${WHISPER_PID:-} ${VOICE_PID:-} 2>/dev/null' EXIT INT TERM
 
+# ZEN Notch (notch/, installed with notch/scripts/install.sh): the small arc
+# beside the notch that carries ZEN while its window is hidden. Started here if
+# installed and not already running. It is left running when ZEN stops — it
+# dims and redials on its own, so start order never matters.
+NOTCH_APP="$HOME/Applications/ZEN Notch.app"
+if [ -d "$NOTCH_APP" ] && ! pgrep -x ZENNotch >/dev/null; then
+  open "$NOTCH_APP" && echo "  ZEN Notch started"
+fi
+
 npm start
