@@ -1,6 +1,6 @@
 # ZEN Notch
 
-A very small arc reactor (18pt) just right of the Mac's notch that stands in for ZEN while
+A very small arc reactor (18pt) in the menu bar, beside your other icons, that stands in for ZEN while
 its window is hidden. Close ZEN (✕, ⌥Space or Esc) and the window drops its 3D scene
 entirely, so the GPU goes quiet; the arc keeps showing what ZEN is doing and lets you answer
 it without opening the window.
@@ -9,9 +9,9 @@ it without opening the window.
   **ripples** while speaking, **dim** when ZEN (the bridge) isn't running.
 - **A soft halo** while an Allow card is waiting. If ZEN's window is hidden, the panel also
   opens on its own for a few seconds, so an approval is never missed.
-- **Hover or click** the arc for the panel: Allow / Deny cards (full text, scrollable), what
-  Spotify is playing with ⏮ ⏯ ⏭, ZEN's last spoken alert, and **Open ZEN**. It hides again
-  when the mouse leaves. Right-click the arc to quit.
+- **Click** the arc for the panel: Allow / Deny cards (full text, scrollable), what Spotify
+  is playing with ⏮ ⏯ ⏭, ZEN's last spoken alert, and **Open ZEN**. Click anywhere else to
+  close it. Right-click for Open ZEN / Quit.
 
 macOS 14+. Builds with the Xcode Command Line Tools alone.
 
@@ -48,11 +48,10 @@ ZEN page (src/) ──{type:'phase'}──▶ bridge ◀──ws://127.0.0.1:878
   desktop app's existing line to the page), which shows and focuses the window.
 - **Reconnects** with backoff (1, 2, 4, 8, then every 15 s), so start order doesn't matter.
 
-## Coexisting with HQ Notch
+## Where it sits
 
-HQ Notch sits *in* the notch with a 64pt wing either side; ZEN's arc goes just past HQ's
-right wing, in the menu-bar band, so the two never overlap. Nudge it with
-`defaults write dev.zen.notch offset 12` (points, + = further right; restart the app).
+It is a real menu-bar item (`NSStatusItem`), so macOS lines it up with the other icons on the
+right and HQ Notch is never in the way. ⌘-drag it to move it among them; macOS remembers.
 
 ## Develop
 
@@ -63,9 +62,9 @@ ZEN_NOTCH_PORT=8799 notch/.build/release/ZENNotch   # against a test bridge
 
 - `ZEN_NOTCH_PORT` (or `defaults write dev.zen.notch port N`) points it at another bridge.
 - `ZEN_NOTCH_SNAPSHOT_DIR=<dir>` writes PNGs of its own views — no Screen Recording permission
-  needed: `arc-states.png` (every arc state, large), then the live window closed and open
-  (`ZEN_NOTCH_SNAPSHOT_WAIT` seconds after launch, default 4). In this mode the window is fully
-  transparent and click-through, so a test card can't be answered by whoever is at the Mac.
+  needed: `arc-states.png` (every arc state, large), then the panel, drawn off-screen
+  (`ZEN_NOTCH_SNAPSHOT_WAIT` seconds after launch, default 4). No popover opens in this mode,
+  so a test card can't be answered by whoever is at the Mac.
 - A test bridge for it: `JARVIS_BRIDGE_PORT=8799 ZEN_MUSIC_DRY=1 ZEN_TEST_HOOKS=1 node
   bridge/server.mjs`. `ZEN_MUSIC_DRY=1` fakes Spotify (a fixed track, buttons only logged) so a
   test never touches real playback; `ZEN_TEST_HOOKS=1` lets a page raise an Allow card
